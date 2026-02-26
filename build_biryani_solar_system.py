@@ -9,11 +9,14 @@ Run: python build_biryani_solar_system.py
 Open: python -m http.server 8000  then  http://localhost:8000/biryani_solar_system.html
 """
 
-import json, warnings
+import json, warnings, math
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from collections import Counter
 from sklearn.manifold import MDS
+from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.spatial.distance import squareform
 
 BASE = Path(__file__).resolve().parent
 CLUSTER_FILE = BASE / "biryani_clusters_and_similarity.xlsx"
@@ -63,6 +66,81 @@ def merge_flavour_profiles(t1, t2, dish_name):
             merged[d] = {"descriptor": d, "category": cat, "intensity": i, "count": 1}
     result = sorted(merged.values(), key=lambda x: -x["intensity"])
     return [{"descriptor": r["descriptor"], "category": r["category"], "intensity": round(r["intensity"], 3)} for r in result]
+
+
+
+def build_hierarchy(member_indices, S, dish_info_list, max_children=4):
+    """Recursively build a balanced tree where each internal node has at most max_children children."""
+    members = list(member_indices)
+    n = len(members)
+
+    if n <= max_children:
+        return {
+            "t": "g",
+            "lb": _subgroup_label(members, dish_info_list),
+            "c": [{"t": "l", "id": int(m)} for m in members],
+        }
+
+    # Number of sub-groups: ideally ceil(n/max_children) but capped at max_children
+    k = min(max_children, max(2, math.ceil(n / max_children)))
+
+    # Sub-cluster using similarity matrix
+    idx_arr = np.array(members)
+    sub_S = S[np.ix_(idx_arr, idx_arr)]
+    D = 1 - np.clip(sub_S, 0, 1)
+    np.fill_diagonal(D, 0)
+    D = (D + D.T) / 2  # ensure symmetry
+    cond = squareform(D, checks=False)
+    Z = linkage(cond, method="average")
+    labels = fcluster(Z, k, criterion="maxclust")
+
+    groups = {}
+    for i, lab in enumerate(labels):
+        groups.setdefault(int(lab), []).append(members[i])
+
+    children = []
+    for g in sorted(groups.values(), key=len, reverse=True):
+        if len(g) == 1:
+            children.append({"t": "l", "id": int(g[0])})
+        else:
+            children.append(build_hierarchy(g, S, dish_info_list, max_children))
+
+    return {"t": "g", "lb": _subgroup_label(members, dish_info_list), "c": children}
+
+
+def _subgroup_label(members, dish_info_list):
+    """Short descriptive label for a sub-group based on dominant cuisine or key ingredient."""
+    cuisines = [dish_info_list[i].get("cuisine", "") for i in members]
+    cuisines = [c for c in cuisines if c]
+    if cuisines:
+        top_c, count = Counter(cuisines).most_common(1)[0]
+        if count >= len(members) * 0.5 and top_c:
+            return top_c
+
+    # Try finding a shared non-generic ingredient
+    generic = {
+        "salt", "oil", "water", "ghee", "onions", "ginger", "garlic",
+        "rice", "tomatoes", "yoghurt", "mint leaves", "coriander leaves",
+        "green chilli", "red chilli powder", "chilli powder",
+    }
+    ingredient_counts = Counter()
+    for i in members:
+        seen = set()
+        for ing_str in dish_info_list[i].get("ingredients", []):
+            parts = ing_str.lower().split()
+            name = " ".join(
+                p for p in parts
+                if not p.replace(".", "").replace(",", "").isdigit()
+                and p not in ("tsp", "tbs", "cup", "gm", "number", "as", "required", "to", "taste")
+            ).strip()
+            if name and name not in generic and name not in seen and len(name) > 2:
+                ingredient_counts[name] += 1
+                seen.add(name)
+    if ingredient_counts:
+        top_ing, count = ingredient_counts.most_common(1)[0]
+        if count >= len(members) * 0.4:
+            return top_ing.title()[:22]
+    return ""
 
 
 def main():
@@ -270,6 +348,22 @@ def main():
             "size": int(mask.sum()),
         })
 
+    # --- Build hierarchical tree per cluster (max ~4 children per node) ---
+    print("Building cluster hierarchies...")
+    hierarchy_data = []
+    for cid in uniq_clusters:
+        members = [i for i in range(n) if vals[i] == cid]
+        cl_label = cluster_label_map.get(cid, f"Group {cid}")
+        color = cluster_cmap.get(cid, "#FFFFFF")
+
+        if len(members) <= 1:
+            tree = {"t": "g", "lb": cl_label, "c": [{"t": "l", "id": int(m)} for m in members]}
+        else:
+            tree = build_hierarchy(members, S, dish_info, max_children=4)
+            tree["lb"] = cl_label  # override root with cluster label
+
+        hierarchy_data.append({"clusterLabel": cl_label, "color": color, "tree": tree})
+
     # --- Top pairings ---
     pair_list = []
     for _, row in pairs.iterrows():
@@ -284,6 +378,7 @@ def main():
         "nodes": nodes, "dishInfo": dish_info,
         "clusterCenters": centers, "pairings": pairings,
         "cuisines": cuisines,
+        "hierarchy": hierarchy_data,
     }
     data_json = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
 
@@ -304,9 +399,9 @@ def build_html(data_json):
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#100b06;--panel:#17110b;--border:#2b1f12;--text:#f3eee6;--muted:#b8a98c;--accent:#e89b3a;--leaf:#7aa96b;--rice:#f4e2c3}
-body{overflow:hidden;background:radial-gradient(1200px 600px at 10% 10%,#1a140d 0%,#0f0b07 50%,#0b0805 100%);font-family:'Space Grotesk','Segoe UI',sans-serif;color:var(--text)}
-body::before{content:'';position:fixed;inset:0;background:radial-gradient(600px 280px at 70% 20%,rgba(232,155,58,0.08),transparent 70%),radial-gradient(500px 320px at 30% 80%,rgba(122,169,107,0.08),transparent 70%);pointer-events:none;z-index:0}
-#scene-shell{position:fixed;top:56px;left:14px;right:14px;bottom:14px;z-index:0;border-radius:36px 36px 52px 52px;background:radial-gradient(900px 420px at 55% 35%,rgba(74,108,66,0.12),transparent 65%),radial-gradient(700px 340px at 45% 78%,rgba(232,155,58,0.08),transparent 70%),linear-gradient(180deg,rgba(20,14,10,0.55),rgba(12,9,7,0.78));border:1px solid rgba(255,255,255,0.07);box-shadow:inset 0 0 80px rgba(0,0,0,0.35)}
+body{overflow:hidden;background:#050510;font-family:'Space Grotesk','Segoe UI',sans-serif;color:var(--text)}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 120% 60% at 50% 0%,rgba(20,15,40,0.9),transparent 60%),radial-gradient(ellipse 80% 50% at 80% 100%,rgba(30,10,5,0.7),transparent 60%);pointer-events:none;z-index:0}
+#scene-shell{position:fixed;top:56px;left:14px;right:14px;bottom:14px;z-index:0;border-radius:36px 36px 52px 52px;background:transparent;border:none;box-shadow:none}
 #canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:1}
 
 #tree-summary{position:fixed;top:72px;left:26px;z-index:70;width:300px;max-height:calc(100vh - 120px);overflow:auto;padding:0.85rem 0.9rem;background:rgba(19,14,10,0.78);border:1px solid rgba(255,255,255,0.1);border-radius:16px 28px 16px 24px;backdrop-filter:blur(8px)}
@@ -325,11 +420,12 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(600px 
 #chef-toggle .dot::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#888;top:2px;left:2px;transition:left 0.3s,background 0.3s}
 
 /* Hover tooltip */
-#tooltip{position:fixed;z-index:50;pointer-events:none;opacity:0;transition:opacity 0.2s;background:rgba(12,12,26,0.95);border:1px solid var(--border);border-radius:10px;padding:0.6rem 0.8rem;min-width:180px;backdrop-filter:blur(6px)}
+#tooltip{position:fixed;z-index:50;pointer-events:none;opacity:0;transition:opacity 0.2s;background:rgba(8,6,16,0.92);border:1px solid rgba(232,155,58,0.25);border-radius:14px;padding:0.7rem 0.9rem;min-width:190px;backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,0.5)}
 #tooltip.show{opacity:1}
-#tooltip img{width:60px;height:60px;border-radius:8px;object-fit:cover;float:left;margin-right:0.6rem}
-#tooltip .tt-name{font-weight:600;font-size:0.9rem;margin-bottom:2px}
-#tooltip .tt-cuisine{font-size:0.75rem;color:var(--muted)}
+#tooltip img{width:56px;height:56px;border-radius:10px;object-fit:cover;float:left;margin-right:0.65rem}
+#tooltip .tt-name{font-weight:600;font-size:0.88rem;margin-bottom:3px;color:#f8d8a8}
+#tooltip .tt-cuisine{font-size:0.73rem;color:var(--muted)}
+#tooltip .tt-desc{font-size:0.7rem;color:rgba(255,255,255,0.5);margin-top:3px;clear:both}
 
 /* Intro */
 #intro-label{position:fixed;left:50%;bottom:3.5rem;transform:translateX(-50%);color:rgba(255,255,255,0.6);font-size:0.95rem;z-index:20;transition:opacity 0.5s}
@@ -338,42 +434,44 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(600px 
 #skip:hover{background:rgba(255,255,255,0.12)}
 #skip.hide{display:none}
 
-/* Info panel */
-#panel{position:fixed;top:48px;right:0;width:380px;height:calc(100vh - 48px);z-index:80;background:var(--panel);border-left:1px solid var(--border);transform:translateX(100%);transition:transform 0.35s ease;display:flex;flex-direction:column;overflow:hidden}
-#panel.open{transform:translateX(0)}
-#panel-close{position:absolute;top:0.6rem;right:0.8rem;background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer;z-index:2}
-#cuisine-filter{padding:0.8rem 1rem;border-bottom:1px solid var(--border)}
-#cuisine-filter select{width:100%;padding:0.4rem 0.5rem;background:#111;color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:0.8rem}
-#dish-list{max-height:200px;overflow-y:auto;border-bottom:1px solid var(--border)}
-#dish-list .dish-item{padding:0.5rem 1rem;font-size:0.82rem;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04)}
+/* Info panel — floating glassmorphic card */
+#panel{position:fixed;bottom:20px;right:20px;width:400px;max-height:60vh;z-index:80;background:rgba(12,8,20,0.88);border:1px solid rgba(232,155,58,0.2);border-radius:20px;transform:translateY(120%) scale(0.95);opacity:0;transition:transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275),opacity 0.35s ease;display:flex;flex-direction:column;overflow:hidden;backdrop-filter:blur(20px);box-shadow:0 16px 60px rgba(0,0,0,0.6),0 0 40px rgba(232,155,58,0.08),inset 0 1px 0 rgba(255,255,255,0.06)}
+#panel.open{transform:translateY(0) scale(1);opacity:1}
+#panel-close{position:absolute;top:0.6rem;right:0.8rem;background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;z-index:2;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.2s}
+#panel-close:hover{background:rgba(255,255,255,0.1)}
+#cuisine-filter{padding:0.6rem 0.8rem;border-bottom:1px solid rgba(255,255,255,0.06)}
+#cuisine-filter select{width:100%;padding:0.35rem 0.5rem;background:rgba(255,255,255,0.05);color:var(--text);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:0.78rem}
+#dish-list{max-height:160px;overflow-y:auto;border-bottom:1px solid rgba(255,255,255,0.06)}
+#dish-list .dish-item{padding:0.45rem 0.8rem;font-size:0.8rem;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.03);transition:background 0.15s}
 #dish-item:hover,.dish-item:hover{background:rgba(255,255,255,0.04)}
 #dish-item.active,.dish-item.active{background:rgba(240,165,0,0.12);color:var(--accent)}
 #dish-detail{flex:1;overflow-y:auto;display:none}
 #dish-detail.show{display:block}
-#dish-detail .detail-header{padding:1rem;border-bottom:1px solid var(--border);display:flex;gap:0.8rem;align-items:flex-start}
-#dish-detail .detail-header img{width:72px;height:72px;border-radius:10px;object-fit:cover;flex-shrink:0}
-#dish-detail .detail-header h2{font-size:1.05rem;margin-bottom:0.3rem}
-#dish-detail .meta-tags{display:flex;gap:0.4rem;flex-wrap:wrap}
-#dish-detail .meta-tag{font-size:0.7rem;padding:0.2rem 0.5rem;background:rgba(255,255,255,0.06);border-radius:4px;color:var(--muted)}
-.tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--border);padding:0 0.6rem;gap:0.1rem}
-.tab-btn{padding:0.4rem 0.55rem;font-size:0.7rem;color:var(--muted);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:color 0.2s,border-color 0.2s;white-space:nowrap}
+#dish-detail .detail-header{padding:0.9rem;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;gap:0.7rem;align-items:flex-start}
+#dish-detail .detail-header img{width:64px;height:64px;border-radius:12px;object-fit:cover;flex-shrink:0;border:2px solid rgba(232,155,58,0.25)}
+#dish-detail .detail-header h2{font-size:1rem;margin-bottom:0.25rem;font-family:'Fraunces',serif;color:#f8d8a8}
+#dish-detail .meta-tags{display:flex;gap:0.35rem;flex-wrap:wrap}
+#dish-detail .meta-tag{font-size:0.65rem;padding:0.15rem 0.45rem;background:rgba(232,155,58,0.1);border:1px solid rgba(232,155,58,0.15);border-radius:20px;color:var(--accent)}
+.tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 0.6rem;gap:0.1rem}
+.tab-btn{padding:0.35rem 0.5rem;font-size:0.68rem;color:var(--muted);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:color 0.2s,border-color 0.2s;white-space:nowrap}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab-content{display:none;padding:0.8rem 1rem;font-size:0.82rem;line-height:1.6}
+.tab-content{display:none;padding:0.7rem 0.9rem;font-size:0.8rem;line-height:1.55}
 .tab-content.show{display:block}
-.tab-content ul{margin:0;padding-left:1.2rem}
-.tab-content li{margin-bottom:0.3rem}
-.flavour-bar{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem}
-.flavour-bar .f-name{width:90px;text-align:right;font-size:0.75rem;color:var(--muted);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.flavour-bar .f-bar{flex:1;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden}
+.tab-content ul{margin:0;padding-left:1.1rem}
+.tab-content li{margin-bottom:0.25rem}
+.flavour-bar{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem}
+.flavour-bar .f-name{width:85px;text-align:right;font-size:0.72rem;color:var(--muted);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flavour-bar .f-bar{flex:1;height:7px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden}
 .flavour-bar .f-fill{height:100%;border-radius:4px;transition:width 0.4s}
-.flavour-bar .f-val{font-size:0.7rem;color:var(--muted);width:30px}
-.read-more{color:var(--accent);cursor:pointer;font-size:0.75rem;margin-top:0.4rem;display:inline-block}
-.step-item{margin-bottom:0.6rem;padding-left:1.5rem;position:relative}
-.step-item::before{content:attr(data-n);position:absolute;left:0;width:1.1rem;height:1.1rem;border-radius:50%;background:rgba(240,165,0,0.15);color:var(--accent);font-size:0.65rem;display:flex;align-items:center;justify-content:center;top:2px}
-.step-style{font-size:0.7rem;color:var(--muted);margin-top:2px}
-.compound-row{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.78rem}
+.flavour-bar .f-val{font-size:0.68rem;color:var(--muted);width:28px}
+.read-more{color:var(--accent);cursor:pointer;font-size:0.72rem;margin-top:0.3rem;display:inline-block}
+.step-item{margin-bottom:0.5rem;padding-left:1.4rem;position:relative}
+.step-item::before{content:attr(data-n);position:absolute;left:0;width:1rem;height:1rem;border-radius:50%;background:rgba(240,165,0,0.15);color:var(--accent);font-size:0.6rem;display:flex;align-items:center;justify-content:center;top:2px}
+.step-style{font-size:0.68rem;color:var(--muted);margin-top:2px}
+.compound-row{display:flex;justify-content:space-between;padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.75rem}
 .compound-row span:last-child{color:var(--muted)}
-#panel-toggle{position:fixed;top:56px;right:8px;z-index:90;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center}
+#panel-toggle{position:fixed;top:56px;right:12px;z-index:90;height:30px;padding:0 12px;border-radius:15px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:var(--muted);cursor:pointer;font-size:0.75rem;display:flex;align-items:center;justify-content:center;gap:5px;backdrop-filter:blur(8px);transition:background 0.2s}
+#panel-toggle:hover{background:rgba(255,255,255,0.12)}
 
 /* Waitlist modal */
 #modal-overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);align-items:center;justify-content:center}
@@ -412,6 +510,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(600px 
   <img id="tt-img" src="" alt="">
   <div class="tt-name" id="tt-name"></div>
   <div class="tt-cuisine" id="tt-cuisine"></div>
+  <div class="tt-desc" id="tt-desc"></div>
 </div>
 
 <!-- Intro -->
@@ -504,6 +603,13 @@ renderDishList('');
 function showDish(idx){
   selectInViz(idx);
   var d=DATA.dishInfo[idx];
+  /* Auto-open panel and show detail */
+  if(!panelOpen) togglePanel();
+  /* Hide list, show detail directly for node-click experience */
+  document.getElementById('dish-list').style.maxHeight='0';
+  document.getElementById('dish-list').style.overflow='hidden';
+  document.getElementById('dish-list').style.borderBottom='none';
+  document.getElementById('cuisine-filter').style.display='none';
   document.getElementById('dish-detail').classList.add('show');
   document.getElementById('detail-name').textContent=d.name;
   document.getElementById('detail-img').src='ambur_biryani.png';
@@ -666,11 +772,25 @@ camera.position.set(0,6,42);
 var renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true});
 renderer.setSize(innerWidth,innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-renderer.setClearColor(0x0b0805,1);
+renderer.setClearColor(0x050510,1);
+
+/* ---- Starfield background ---- */
+var starCount=600;
+var starGeo=new THREE.BufferGeometry();
+var starPos=new Float32Array(starCount*3);
+for(var si=0;si<starCount;si++){
+  starPos[si*3]=(Math.random()-0.5)*400;
+  starPos[si*3+1]=(Math.random()-0.5)*300;
+  starPos[si*3+2]=(Math.random()-0.5)*400;
+}
+starGeo.setAttribute('position',new THREE.BufferAttribute(starPos,3));
+var starMat=new THREE.PointsMaterial({color:0xffffff,size:0.25,transparent:true,opacity:0.5,sizeAttenuation:true});
+var stars=new THREE.Points(starGeo,starMat);
+scene.add(stars);
 
 document.getElementById('intro-label').textContent='From rice roots to biryani leaves, follow the ingredient branches.';
 
-var TREE={baseY:-18,trunkTop:4,canopyTop:16,branchRadius:9};
+var TREE={baseY:-8,trunkTop:0,canopyTop:200,branchRadius:14};
 
 function normalizeIngredient(raw){
   if(!raw) return '';
@@ -701,95 +821,37 @@ function titleCase(text){
   return String(text||'').replace(/\b([a-z])/g,function(m){return m.toUpperCase();});
 }
 
-function ingredientCategory(ing){
-  var s=String(ing||'');
-  if(!s) return 'Other';
-  if(/mutton|chicken|beef|pork|lamb|keema|mince|gosht|meat/.test(s)) return 'Meat';
-  if(/prawn|fish|shrimp|seafood/.test(s)) return 'Seafood';
-  if(/rice|wheat|grain|dal|lentil/.test(s)) return 'Grain & Pulse';
-  if(/mint|coriander|cilantro|leaf|leaves|herb/.test(s)) return 'Herbs';
-  if(/chilli|pepper|cardamom|clove|cinnamon|masala|saffron|nutmeg|mace|bay/.test(s)) return 'Spices';
-  if(/yoghurt|curd|milk|cream|ghee|butter|cheese/.test(s)) return 'Dairy';
-  if(/potato|onion|tomato|carrot|vegetable|jackfruit|eggplant|brinjal/.test(s)) return 'Vegetables';
-  if(/lime|lemon|plum|apricot|orange|fruit/.test(s)) return 'Fruits';
-  if(/cashew|almond|nut|raisin/.test(s)) return 'Nuts & Dry Fruit';
-  return 'Other';
-}
-
 function buildTreeLayout(){
-  var dishIngredients=[];
-  var ingredientCounts={};
-  var total=DATA.dishInfo.length||1;
-  var CATEGORIES=['Meat','Seafood','Vegetables','Spices','Herbs','Dairy','Fruits','Nuts & Dry Fruit','Other'];
-  var generic={
-    'salt':1,'water':1,'oil':1,'ghee':1,'onion':1,'onions':1,'ginger':1,'garlic':1,
-    'tomato':1,'tomatoes':1,'yoghurt':1,'milk':1,'cream':1,'coriander leaves':1,
-    'mint leaves':1,'green chilli':1,'red chilli powder':1,'chilli powder':1
-  };
-  function isRice(ing){return ing.indexOf('rice')>=0;}
-  function addCount(ing){ingredientCounts[ing]=(ingredientCounts[ing]||0)+1;}
+  /* ---- Hierarchical tree from DATA.hierarchy (built in Python) ---- */
+  var nodePositions=[];
+  var lineSegments=[];
+  var junctionNodes=[];  /* internal tree nodes at each level */
+  var branchNames=[];
+  var branchCounts={};
 
-  DATA.dishInfo.forEach(function(d,i){
+  var numClusters=DATA.hierarchy.length;
+  var clusterAngleStep=(Math.PI*2)/numClusters;
+
+  /* Tree step sizes — WIDE horizontal, very flat */
+  var RADIUS_STEP=9;
+  var HEIGHT_STEP=0.4;
+
+  /* ---- Common ingredients for trunk decoration ---- */
+  var ingredientCounts={};
+  DATA.dishInfo.forEach(function(d){
     var list=(d.ingredients||[]).map(normalizeIngredient).filter(Boolean);
     var uniq=[];
     list.forEach(function(ing){if(uniq.indexOf(ing)===-1) uniq.push(ing);});
-    dishIngredients[i]=uniq;
-    uniq.forEach(addCount);
+    uniq.forEach(function(ing){ingredientCounts[ing]=(ingredientCounts[ing]||0)+1;});
   });
-
   var commonIgnore={'salt':1,'water':1,'oil':1,'ghee':1};
+  function isRice(ing){return ing.indexOf('rice')>=0;}
   var commonList=Object.keys(ingredientCounts).filter(function(ing){
     return !isRice(ing) && !commonIgnore[ing];
   }).sort(function(a,b){return ingredientCounts[b]-ingredientCounts[a];})
     .map(cleanLabel).filter(Boolean)
     .filter(function(v,i,a){return a.indexOf(v)===i;})
     .slice(0,8);
-
-  function pickPrimary(ings){
-    var filtered=ings.filter(function(ing){return !generic[ing] && !isRice(ing);});
-    if(!filtered.length) filtered=ings.filter(function(ing){return !isRice(ing) && ing!=='salt';});
-    if(!filtered.length) return 'Other';
-    var score={};
-    filtered.forEach(function(ing){
-      var c=ingredientCategory(ing);
-      score[c]=(score[c]||0)+1;
-    });
-    var best='Other',bestV=-1;
-    Object.keys(score).forEach(function(k){if(score[k]>bestV){bestV=score[k];best=k;}});
-    return best;
-  }
-
-  var branchCounts={};
-  var dishBranch=[];
-  dishIngredients.forEach(function(ings,i){
-    var primary=pickPrimary(ings);
-    dishBranch[i]=primary;
-    branchCounts[primary]=(branchCounts[primary]||0)+1;
-  });
-
-  var branchNames=CATEGORIES.filter(function(c){return (branchCounts[c]||0)>0;});
-  if(branchNames.indexOf('Other')===-1 && branchCounts['Other']) branchNames.push('Other');
-  if(!branchNames.length) branchNames=['Other'];
-
-  var branchMap={};
-  var branchNodes=[];
-  var branchAngles={};
-  var angleStep=(Math.PI*2)/branchNames.length;
-  var branchColors=['#7aa96b','#9ac16e','#b7cf6f','#8fb685','#6fa37f','#a2b98a','#c3d09b','#7f9f6d','#9bb481','#7ea972','#97b590','#b1c48d','#98a96b'];
-
-  branchNames.forEach(function(name,idx){
-    var count=branchCounts[name]||1;
-    var freq=count/total;
-    var y=TREE.baseY+8+(1-freq)*12;
-    y=Math.max(TREE.baseY+6,Math.min(TREE.canopyTop-2,y));
-    var radius=TREE.branchRadius*(0.6+(1-freq)*0.6);
-    var angle=idx*angleStep;
-    var x=Math.cos(angle)*radius;
-    var z=Math.sin(angle)*radius;
-    branchAngles[name]=angle;
-    branchMap[name]={x:x,y:y,z:z,angle:angle,color:branchColors[idx%branchColors.length]};
-    branchNodes.push({name:name,x:x,y:y,z:z,angle:angle,color:branchColors[idx%branchColors.length]});
-  });
 
   var commonNodes=[];
   commonList.forEach(function(name,idx){
@@ -799,36 +861,87 @@ function buildTreeLayout(){
     commonNodes.push({name:name,x:Math.cos(angle)*r,y:y,z:Math.sin(angle)*r});
   });
 
-  var nodePositions=[];
-  var lineSegments=[];
-
   commonNodes.forEach(function(n){
     lineSegments.push({a:{x:0,y:n.y,z:0},b:{x:n.x,y:n.y,z:n.z}});
   });
 
-  branchNodes.forEach(function(n){
-    lineSegments.push({a:{x:0,y:n.y,z:0},b:{x:n.x,y:n.y,z:n.z}});
-  });
+  /* ---- Recursive tree node positioning ---- */
+  function countLeaves(node){
+    if(node.t==='l') return 1;
+    var c=0;
+    (node.c||[]).forEach(function(ch){c+=countLeaves(ch);});
+    return c;
+  }
 
-  DATA.dishInfo.forEach(function(d,i){
-    var ings=dishIngredients[i]||[];
-    var primary=dishBranch[i];
-    if(branchNames.indexOf(primary)===-1) primary='Other';
-    var branch=branchMap[primary];
-    var rarity=0;
-    if(ings.length){
-      var sum=0;
-      ings.forEach(function(ing){sum+=1-((ingredientCounts[ing]||1)/total);});
-      rarity=sum/ings.length;
+  function layoutNode(node,posX,posY,posZ,angleCenter,arcSpan,depth,color){
+    if(node.t==='l'){
+      /* Leaf node: a biryani dish */
+      nodePositions[node.id]={x:posX,y:posY,z:posZ};
+      return;
     }
-    var y=branch.y+2+rarity*7+Math.random()*1.6;
-    y=Math.min(TREE.canopyTop,y);
-    var angle=branch.angle+(Math.random()-0.5)*0.9;
-    var r=1.8+rarity*3.5;
-    var x=branch.x+Math.cos(angle)*r;
-    var z=branch.z+Math.sin(angle)*r;
-    nodePositions[i]={x:x,y:y,z:z};
-    lineSegments.push({a:{x:branch.x,y:branch.y,z:branch.z},b:{x:x,y:y,z:z}});
+    /* Group node: record as junction, then position children */
+    junctionNodes.push({
+      x:posX,y:posY,z:posZ,
+      label:node.lb||'',
+      color:color,
+      depth:depth
+    });
+
+    var children=node.c||[];
+    var n=children.length;
+    if(n===0) return;
+
+    /* Proportional arc: each child gets arc proportional to its leaf count */
+    var totalLeaves=0;
+    var leafCounts=[];
+    children.forEach(function(child){
+      var lc=countLeaves(child);
+      leafCounts.push(lc);
+      totalLeaves+=lc;
+    });
+
+    var startAngle=angleCenter-arcSpan/2;
+    var currentAngle=startAngle;
+
+    children.forEach(function(child,i){
+      var childArc=(leafCounts[i]/Math.max(1,totalLeaves))*arcSpan;
+      var childAngle=currentAngle+childArc/2;
+      currentAngle+=childArc;
+
+      /* Each child steps outward with slight height */
+      var rStep=RADIUS_STEP*(0.8+Math.random()*0.3);
+      var hStep=HEIGHT_STEP*(0.6+Math.random()*0.5);
+
+      var cx=posX+Math.cos(childAngle)*rStep;
+      var cz=posZ+Math.sin(childAngle)*rStep;
+      var cy=posY+hStep;
+
+      lineSegments.push({a:{x:posX,y:posY,z:posZ},b:{x:cx,y:cy,z:cz}});
+      /* Keep arc wide: don't shrink, enforce min 0.35 rad so children always fan out */
+      layoutNode(child,cx,cy,cz,childAngle,Math.max(childArc,0.35),depth+1,color);
+    });
+  }
+
+  /* ---- Layout each cluster from the trunk ---- */
+  DATA.hierarchy.forEach(function(cluster,idx){
+    var baseAngle=idx*clusterAngleStep;
+    var arcSpan=clusterAngleStep*0.92;
+    var color=cluster.color;
+    var tree=cluster.tree;
+
+    branchNames.push(cluster.clusterLabel);
+    branchCounts[cluster.clusterLabel]=countLeaves(tree);
+
+    /* Root branch point at branchRadius from trunk */
+    var bx=Math.cos(baseAngle)*TREE.branchRadius;
+    var bz=Math.sin(baseAngle)*TREE.branchRadius;
+    var by=TREE.trunkTop+2;
+
+    lineSegments.push({a:{x:0,y:by,z:0},b:{x:bx,y:by,z:bz}});
+
+    /* Start recursive layout from this branch point */
+    tree.lb=cluster.clusterLabel;
+    layoutNode(tree,bx,by,bz,baseAngle,arcSpan,0,color);
   });
 
   var linePositions=new Float32Array(lineSegments.length*6);
@@ -840,7 +953,7 @@ function buildTreeLayout(){
 
   return {
     nodePositions:nodePositions,
-    branchNodes:branchNodes,
+    junctionNodes:junctionNodes,
     commonNodes:commonNodes,
     linePositions:linePositions,
     commonList:commonList,
@@ -859,8 +972,8 @@ function renderTreeSummary(layout){
   var branchNames=(layout.branchNames||[]);
   var counts=layout.branchCounts||{};
   var branchList=branchNames.slice().sort(function(a,b){return (counts[b]||0)-(counts[a]||0);});
-  var html='<h3>Ingredient Map</h3>';
-  html+='<div class="muted">Rice at base • branches by dominant ingredient family • leaves are biryanis</div>';
+  var html='<h3>Biryani Tree</h3>';
+  html+='<div class="muted">Rice at base • cluster branches • sub-groups by similarity • leaves are biryanis</div>';
   html+='<h4>Common Ingredients</h4><ul>';
   if(common.length){
     common.forEach(function(name){html+='<li>'+titleCase(name)+'</li>';});
@@ -868,8 +981,8 @@ function renderTreeSummary(layout){
     html+='<li class="muted">No common ingredients detected</li>';
   }
   html+='</ul>';
-  html+='<h4>Branch Families</h4><ul>';
-  branchList.forEach(function(name){html+='<li>'+name+' <span class="muted">('+ (counts[name]||0) +')</span></li>';});
+  html+='<h4>Cluster Families</h4><ul>';
+  branchList.forEach(function(name){html+='<li>'+name+' <span class="muted">('+( counts[name]||0) +')</span></li>';});
   html+='</ul>';
   el.innerHTML=html;
 }
@@ -896,22 +1009,59 @@ trunk.position.y=(TREE.baseY+TREE.trunkTop)/2;
 scene.add(trunk);
 
 // Canopy glow
-var canopy=new THREE.Mesh(new THREE.SphereGeometry(11,28,28),new THREE.MeshBasicMaterial({color:0x466b3a,transparent:true,opacity:0.06}));
-canopy.position.y=TREE.canopyTop-2;
+var canopy=new THREE.Mesh(new THREE.SphereGeometry(24,28,28),new THREE.MeshBasicMaterial({color:0x466b3a,transparent:true,opacity:0.03}));
+canopy.position.y=TREE.canopyTop/2;
 scene.add(canopy);
 
-// Ingredient nodes
+// Common ingredient nodes along trunk — interactive with hover
+var ingredientOrbs=[];
 layout.commonNodes.forEach(function(n){
-  var node=new THREE.Mesh(new THREE.SphereGeometry(0.55,18,18),new THREE.MeshPhongMaterial({color:0xd9c199,emissive:0x3b2b1b,shininess:30,transparent:true,opacity:0.95}));
+  var node=new THREE.Mesh(new THREE.SphereGeometry(0.45,18,18),new THREE.MeshPhongMaterial({color:0xd9c199,emissive:0x5a4830,shininess:60,transparent:true,opacity:0.92}));
   node.position.set(n.x,n.y,n.z);
+  node.userData={type:'ingredient',name:n.name};
+  var glow=new THREE.Mesh(new THREE.SphereGeometry(0.7,10,10),new THREE.MeshBasicMaterial({color:0xd9c199,transparent:true,opacity:0.06}));
+  node.add(glow);
+  ingredientOrbs.push(node);
   scene.add(node);
 });
 
-layout.branchNodes.forEach(function(n){
+// Junction nodes at all hierarchy levels with text labels
+function makeTextSprite(text,color,scale){
+  var canvas=document.createElement('canvas');
+  var ctx=canvas.getContext('2d');
+  canvas.width=512;canvas.height=64;
+  ctx.clearRect(0,0,512,64);
+  ctx.font='bold '+(scale>5?'22':'18')+'px Space Grotesk,sans-serif';
+  ctx.fillStyle=color||'#f8d8a8';
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  var label=text.length>28?text.slice(0,26)+'…':text;
+  ctx.fillText(label,256,32);
+  var tex=new THREE.CanvasTexture(canvas);
+  tex.minFilter=THREE.LinearFilter;
+  var mat=new THREE.SpriteMaterial({map:tex,transparent:true,opacity:0.88,depthTest:false});
+  var sprite=new THREE.Sprite(mat);
+  sprite.scale.set(scale||6,scale/6||1,1);
+  return sprite;
+}
+
+layout.junctionNodes.forEach(function(n){
   var col=new THREE.Color(n.color);
-  var node=new THREE.Mesh(new THREE.SphereGeometry(0.7,20,20),new THREE.MeshPhongMaterial({color:col,emissive:col.clone().multiplyScalar(0.25),shininess:40,transparent:true,opacity:0.95}));
+  /* Sphere size decreases with depth */
+  var sphereR=Math.max(0.3,0.9-n.depth*0.15);
+  var node=new THREE.Mesh(
+    new THREE.SphereGeometry(sphereR,16,16),
+    new THREE.MeshPhongMaterial({color:col,emissive:col.clone().multiplyScalar(0.3),shininess:40,transparent:true,opacity:0.92})
+  );
   node.position.set(n.x,n.y,n.z);
   scene.add(node);
+  /* Label: show for top 2 levels or if label is non-empty */
+  if(n.label && n.depth<=2){
+    var spriteScale=n.depth===0?8:n.depth===1?5:4;
+    var label=makeTextSprite(n.label,n.color,spriteScale);
+    label.position.set(n.x,n.y+sphereR+0.6,n.z);
+    scene.add(label);
+  }
 });
 
 // Connection lines
@@ -921,7 +1071,7 @@ lineGeo.setAttribute('position',new THREE.BufferAttribute(layout.linePositions,3
 var lines=new THREE.LineSegments(lineGeo,lineMat);
 scene.add(lines);
 
-// Biryani leaves
+// Biryani leaves (smaller to reduce overlap)
 var orbs=[];
 DATA.nodes.forEach(function(n,i){
   var hex=n.color.replace('#','');
@@ -930,15 +1080,15 @@ DATA.nodes.forEach(function(n,i){
   var b=parseInt(hex.slice(4,6),16)/255;
   var col=new THREE.Color(r,g,b);
 
-  var geo=new THREE.SphereGeometry(0.7,28,28);
-  var mat=new THREE.MeshPhongMaterial({color:col,emissive:col.clone().multiplyScalar(0.4),shininess:70,transparent:true,opacity:0.96});
+  var geo=new THREE.SphereGeometry(0.5,20,20);
+  var mat=new THREE.MeshPhongMaterial({color:col,emissive:col.clone().multiplyScalar(0.45),shininess:70,transparent:true,opacity:0.96});
   var mesh=new THREE.Mesh(geo,mat);
   var pos=nodePositions[i];
   mesh.position.set(pos.x,pos.y,pos.z);
   mesh.userData={name:n.name,id:i,cuisine:n.cuisine,cluster:n.cluster,color:n.color,clusterLabel:n.clusterLabel||''};
 
-  var glowGeo=new THREE.SphereGeometry(1.0,16,16);
-  var glowMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.12});
+  var glowGeo=new THREE.SphereGeometry(0.75,12,12);
+  var glowMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.1});
   var glow=new THREE.Mesh(glowGeo,glowMat);
   mesh.add(glow);
 
@@ -955,15 +1105,16 @@ var selLines=new THREE.LineSegments(selLineGeo,selLineMat);
 selLines.visible=false;
 scene.add(selLines);
 
-// Lights
-scene.add(new THREE.AmbientLight(0x3b2b1b,0.9));
-var dl=new THREE.DirectionalLight(0xffffff,0.6);dl.position.set(20,30,10);scene.add(dl);
-var pl=new THREE.PointLight(0xe89b3a,0.5,120);pl.position.set(0,10,0);scene.add(pl);
+// Lights — warm ambient + soft directional + golden point for tree
+scene.add(new THREE.AmbientLight(0x1a1230,0.7));
+var dl=new THREE.DirectionalLight(0xffe8cc,0.55);dl.position.set(20,40,15);scene.add(dl);
+var dl2=new THREE.DirectionalLight(0x8888ff,0.15);dl2.position.set(-15,20,-10);scene.add(dl2);
+var pl=new THREE.PointLight(0xe89b3a,0.6,80);pl.position.set(0,10,0);scene.add(pl);
 
 /* ======================== CAMERA INTRO (4 sec, single direction) ======================== */
 var introActive=true;
-var introStartPos=new THREE.Vector3(0,10,46);
-var introEndPos=new THREE.Vector3(0,6,32);
+var introStartPos=new THREE.Vector3(0,55,45);
+var introEndPos=new THREE.Vector3(0,40,50);
 var introDuration=4;
 var introElapsed=0;
 
@@ -971,7 +1122,7 @@ function updateIntro(dt){
   introElapsed+=dt;
   var t=Math.min(1,introElapsed/introDuration);
   camera.position.lerpVectors(introStartPos,introEndPos,t);
-  camera.lookAt(0,4,0);
+  camera.lookAt(0,8,0);
   lineMat.opacity=Math.min(1,introElapsed/2)*0.35;
   if(t>=1){ introActive=false; finishIntro(); }
 }
@@ -980,13 +1131,13 @@ function finishIntro(){
   document.getElementById('intro-label').classList.add('hide');
   document.getElementById('skip').classList.add('hide');
   lineMat.opacity=0.35;
-  orbitEnabled=true;cameraRadius=34;updateCam();
+  orbitEnabled=true;cameraRadius=80;cPhi=0.65;updateCam();
 }
 document.getElementById('skip').onclick=finishIntro;
 
 /* ======================== ORBIT CONTROLS ======================== */
-var orbitCenter=new THREE.Vector3(0,4,0);
-var orbitEnabled=false,cameraRadius=50,cTheta=0.3,cPhi=1.2,dragStart=null;
+var orbitCenter=new THREE.Vector3(0,2,0);
+var orbitEnabled=false,cameraRadius=80,cTheta=0.3,cPhi=0.65,dragStart=null;
 function updateCam(){
   var dx=cameraRadius*Math.sin(cPhi)*Math.cos(cTheta);
   var dy=cameraRadius*Math.cos(cPhi);
@@ -1066,55 +1217,102 @@ function updateZoom(dt){
   camera.lookAt(zoomLookAt);
 }
 var didDrag=false;
-canvas.onmousedown=function(e){if(!orbitEnabled||e.button!==0)return;didDrag=false;dragStart={x:e.clientX,y:e.clientY,t:cTheta,p:cPhi}};
+var panMode=false;
+canvas.onmousedown=function(e){
+  if(!orbitEnabled) return;
+  didDrag=false;
+  /* Right-click or Shift+Left = pan; Left = orbit */
+  panMode=(e.button===2||e.shiftKey);
+  dragStart={x:e.clientX,y:e.clientY,t:cTheta,p:cPhi,cx:orbitCenter.x,cy:orbitCenter.y,cz:orbitCenter.z};
+};
+canvas.oncontextmenu=function(e){e.preventDefault();};
 canvas.onmousemove=function(e){
   if(dragStart){
     var dx=e.clientX-dragStart.x,dy=e.clientY-dragStart.y;
     if(Math.abs(dx)>3||Math.abs(dy)>3) didDrag=true;
-    cTheta=dragStart.t+dx*0.007;
-    cPhi=Math.max(0.15,Math.min(Math.PI-0.15,dragStart.p+dy*0.007));
-    updateCam();
+    if(panMode){
+      /* Pan: move orbit center */
+      var panSpeed=cameraRadius*0.002;
+      var right=new THREE.Vector3();
+      var up=new THREE.Vector3(0,1,0);
+      var fwd=camera.position.clone().sub(orbitCenter).normalize();
+      right.crossVectors(up,fwd).normalize();
+      var realUp=new THREE.Vector3();realUp.crossVectors(fwd,right).normalize();
+      orbitCenter.x=dragStart.cx-dx*panSpeed*right.x+dy*panSpeed*realUp.x;
+      orbitCenter.y=dragStart.cy-dx*panSpeed*right.y+dy*panSpeed*realUp.y;
+      orbitCenter.z=dragStart.cz-dx*panSpeed*right.z+dy*panSpeed*realUp.z;
+      updateCam();
+    } else {
+      cTheta=dragStart.t+dx*0.007;
+      cPhi=Math.max(0.15,Math.min(Math.PI-0.15,dragStart.p+dy*0.007));
+      updateCam();
+    }
     document.getElementById('tooltip').classList.remove('show');
     return;
   }
-  // Tooltip via raycaster (only when not dragging and in user mode)
+  // Tooltip via raycaster — check ALL hits for biryani orbs AND ingredient orbs
   if(introActive) return;
   var mx=(e.clientX/innerWidth)*2-1;
   var my=-(e.clientY/innerHeight)*2+1;
   rc.setFromCamera(new THREE.Vector2(mx,my),camera);
+  /* Check biryani orbs */
   var hits=rc.intersectObjects(orbs,false);
   var tt=document.getElementById('tooltip');
-  if(hits.length){
-    var obj=hits[0].object;
-    var u=obj.userData;
-    if(!u||!u.name){tt.classList.remove('show');return}
-    document.getElementById('tt-name').textContent=u.name;
-    document.getElementById('tt-cuisine').textContent=u.cuisine||'';
+  var found=null;
+  var foundType='biryani';
+  for(var hi=0;hi<hits.length;hi++){
+    var u=hits[hi].object.userData;
+    if(u&&u.name){found=u;break;}
+  }
+  /* Check ingredient orbs if no biryani hit */
+  if(!found){
+    var ihits=rc.intersectObjects(ingredientOrbs,false);
+    for(var hi2=0;hi2<ihits.length;hi2++){
+      var u2=ihits[hi2].object.userData;
+      if(u2&&u2.name){found=u2;foundType='ingredient';break;}
+    }
+  }
+  if(found){
+    if(foundType==='ingredient'){
+      document.getElementById('tt-name').textContent=found.name;
+      document.getElementById('tt-cuisine').textContent='Common Ingredient';
+      document.getElementById('tt-desc').textContent='Found across most biryanis';
+    } else {
+      document.getElementById('tt-name').textContent=found.name;
+      document.getElementById('tt-cuisine').textContent=(found.cuisine||'')+(found.clusterLabel?' \u00b7 '+found.clusterLabel:'');
+      document.getElementById('tt-desc').textContent='Click to see full details';
+    }
     document.getElementById('tt-img').src=PLACEHOLDER_IMG;
-    tt.style.left=Math.min(e.clientX+14,innerWidth-200)+'px';
+    tt.style.left=Math.min(e.clientX+14,innerWidth-220)+'px';
     tt.style.top=Math.min(e.clientY+14,innerHeight-80)+'px';
     tt.classList.add('show');
   } else {
     tt.classList.remove('show');
   }
 };
-canvas.onmouseup=function(){dragStart=null;};
-canvas.onmouseleave=function(){dragStart=null;document.getElementById('tooltip').classList.remove('show')};
-canvas.onwheel=function(e){if(!orbitEnabled)return;e.preventDefault();cameraRadius=Math.max(8,Math.min(80,cameraRadius+e.deltaY*0.04));updateCam()};
-
-/* ======================== CLICK TO SELECT ======================== */
-var rc=new THREE.Raycaster();
-canvas.onclick=function(e){
-  if(introActive) return;
-  if(didDrag) return;
-  var mx=(e.clientX/innerWidth)*2-1;
-  var my=-(e.clientY/innerHeight)*2+1;
-  rc.setFromCamera(new THREE.Vector2(mx,my),camera);
-  var hits=rc.intersectObjects(orbs);
-  if(!hits.length) return;
-  var idx=hits[0].object.userData.id;
-  showDish(idx);
+canvas.onmouseup=function(e){
+  var wasDrag=didDrag;
+  var wasLeft=(dragStart && !panMode);
+  dragStart=null;panMode=false;
+  /* If left button, short distance = click on node */
+  if(e.button===0 && !wasDrag && !introActive && orbitEnabled){
+    var mx=(e.clientX/innerWidth)*2-1;
+    var my=-(e.clientY/innerHeight)*2+1;
+    rc.setFromCamera(new THREE.Vector2(mx,my),camera);
+    var hits=rc.intersectObjects(orbs,false);
+    if(hits.length){
+      var obj=hits[0].object;
+      if(obj.userData && obj.userData.id!==undefined){
+        showDish(obj.userData.id);
+      }
+    }
+  }
 };
+canvas.onmouseleave=function(){dragStart=null;panMode=false;document.getElementById('tooltip').classList.remove('show')};
+canvas.onwheel=function(e){if(!orbitEnabled)return;e.preventDefault();cameraRadius=Math.max(1,cameraRadius+e.deltaY*0.08);updateCam()};
+
+/* ======================== RAYCASTER ======================== */
+var rc=new THREE.Raycaster();
 
 /* ======================== ANIMATION LOOP ======================== */
 var clock=new THREE.Clock();
@@ -1125,8 +1323,10 @@ function loop(){
   elapsed+=dt;
   if(introActive) updateIntro(dt);
   else if(zooming) updateZoom(dt);
-  // Gentle bob for orbs
-  orbs.forEach(function(o,i){o.position.y=nodePositions[i].y+Math.sin(elapsed*0.6+i*0.7)*0.15});
+  // Gentle bob for orbs + subtle glow pulse
+  orbs.forEach(function(o,i){o.position.y=nodePositions[i].y+Math.sin(elapsed*0.4+i*0.7)*0.1});
+  // Slow star rotation
+  stars.rotation.y=elapsed*0.002;
   renderer.render(scene,camera);
 }
 loop();
