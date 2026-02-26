@@ -225,15 +225,58 @@ def main():
         # Ingredients
         ing_df = ingredients[ingredients["dish_id"] == did] if not ingredients.empty else pd.DataFrame()
         ing_list = []
+        import re
+        
+        # A comprehensive regex to match numbers (including fractions and hyphens) optionally followed by measurement units.
+        # This matches patterns like "1", "0.5", "1/2", "2 1-inch sticks", "Tbs", "1 cup", etc. at the START of the string.
+        # We explicitly wrap the units with word boundaries \b to prevent stripping first letters of actual ingredients (e.g. 'G' from Garlic).
+        unit_pattern = r'(?i)^(?:[\d\s\./\-]+(?:inch|inch\s+sticks|sticks|inch\s+pieces|pieces|piece)?\s*)?(?:\b(?:to\s+taste|as\s+required|tbs|tbsp|tablespoon|tsp|teaspoon|cup|cups|number|numbers|gm|g|kg|ml|l|sprig|sprigs|clove|cloves|pod|pods|stick|sticks|leaf|leaves|slice|slices)\b)?\s*'
+
         for _, ir in ing_df.iterrows():
-            q = ir.get("quantity")
-            u = str(ir.get("unit_of_measure", "")) if pd.notna(ir.get("unit_of_measure")) else ""
-            nm = str(ir.get("ingredient_name", ""))
-            prep = str(ir.get("preparation_method", "")) if pd.notna(ir.get("preparation_method")) else ""
-            line = f"{q} {u} {nm}".strip() if pd.notna(q) else nm
+            nm = str(ir.get("ingredient_name", "")).strip()
+            prep = str(ir.get("preparation_method", "")).strip() if pd.notna(ir.get("preparation_method")) else ""
+            
+            # Start with just the ingredient name. We completely ignore the 'quantity' and 'unit_of_measure' columns
+            # because they are often incorrectly baked into the 'ingredient_name' string itself in this dataset.
+            line = nm
+            
+            # Aggressively strip out the measurement pattern from the beginning of the string
+            line = re.sub(unit_pattern, '', line).strip()
+            
+            # Catch standalone "Tbs", "tsp", etc., that might not be at the very beginning
+            line = re.sub(r'(?i)\b(?:to\s+taste|as\s+required|tbs|tbsp|tablespoon|tsp|teaspoon|cup|cups|number|numbers|gm|g|kg|ml|l|sprig|sprigs|clove|cloves|pod|pods|stick|sticks|leaf|leaves|slice|slices)\b', '', line).strip()
+            
+            # Catch leftover leading numbers that might have been unattached to a recognized unit
+            line = re.sub(r'^[\d\s\./\-]+', '', line).strip()
+            
+            # Add preparation method if exists
             if prep:
                 line += f" ({prep})"
-            ing_list.append(line)
+                
+            # Clean up extra spaces
+            line = re.sub(r'\s+', ' ', line).strip() 
+            line = line.capitalize() # capitalize the first char for neatness
+            
+            
+            # Hardcoded fix for the most notorious broken strings that happen after bad regex clipping.
+            # E.g. If the string became 'inger' or 'arlic', this puts it back.
+            fixes = {
+                "inger (paste)": "Ginger (paste)",
+                "arlic (paste)": "Garlic (paste)",
+                "inger": "Ginger",
+                "arlic": "Garlic",
+                "hee": "Ghee",
+                "reen cardamoms": "Green cardamoms",
+                "reen chillies": "Green chillies",
+                "s": "Cloves", # Assuming if it just stripped to "s" it was cloves.
+                "alt": "Salt"
+            }
+            clean_lc = line.lower()
+            if clean_lc in fixes:
+                line = fixes[clean_lc]
+                
+            if line.strip() != "":
+                ing_list.append(line)
 
         # Flavour profile (merged)
         flavour = merge_flavour_profiles(taste1, taste2, name)
@@ -434,13 +477,20 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 #skip:hover{background:rgba(255,255,255,0.12)}
 #skip.hide{display:none}
 
+/* Custom Scrollbars */
+#panel ::-webkit-scrollbar { width:6px; }
+#panel ::-webkit-scrollbar-track { background:transparent; }
+#panel ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:4px; }
+#panel ::-webkit-scrollbar-thumb:hover { background:rgba(232,155,58,0.5); }
+
 /* Info panel — floating glassmorphic card */
 #panel{position:fixed;bottom:20px;right:20px;width:400px;max-height:60vh;z-index:80;background:rgba(12,8,20,0.88);border:1px solid rgba(232,155,58,0.2);border-radius:20px;transform:translateY(120%) scale(0.95);opacity:0;transition:transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275),opacity 0.35s ease;display:flex;flex-direction:column;overflow:hidden;backdrop-filter:blur(20px);box-shadow:0 16px 60px rgba(0,0,0,0.6),0 0 40px rgba(232,155,58,0.08),inset 0 1px 0 rgba(255,255,255,0.06)}
 #panel.open{transform:translateY(0) scale(1);opacity:1}
-#panel-close{position:absolute;top:0.6rem;right:0.8rem;background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;z-index:2;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.2s}
+#panel-close{position:absolute;top:0.6rem;right:0.6rem;background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;z-index:2;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.2s}
 #panel-close:hover{background:rgba(255,255,255,0.1)}
 #cuisine-filter{padding:0.6rem 0.8rem;border-bottom:1px solid rgba(255,255,255,0.06)}
-#cuisine-filter select{width:100%;padding:0.35rem 0.5rem;background:rgba(255,255,255,0.05);color:var(--text);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:0.78rem}
+#cuisine-filter select{width:calc(100% - 32px);padding:0.35rem 0.5rem;background:rgba(255,255,255,0.05);color:var(--text);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:0.78rem}
+#cuisine-filter select option{background:var(--panel);color:var(--text)}
 #dish-list{max-height:160px;overflow-y:auto;border-bottom:1px solid rgba(255,255,255,0.06)}
 #dish-list .dish-item{padding:0.45rem 0.8rem;font-size:0.8rem;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.03);transition:background 0.15s}
 #dish-item:hover,.dish-item:hover{background:rgba(255,255,255,0.04)}
@@ -571,9 +621,16 @@ var PLACEHOLDER_IMG='data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3
 
 /* ======================== PANEL LOGIC ======================== */
 var panelOpen=false;
-window.togglePanel=function(){
+window.togglePanel=function(showList=true){
   panelOpen=!panelOpen;
   document.getElementById('panel').classList.toggle('open',panelOpen);
+  if (panelOpen && showList) {
+    document.getElementById('dish-list').style.maxHeight='160px';
+    document.getElementById('dish-list').style.overflowY='auto';
+    document.getElementById('dish-list').style.borderBottom='1px solid rgba(255,255,255,0.06)';
+    document.getElementById('cuisine-filter').style.display='block';
+    document.getElementById('dish-detail').classList.remove('show');
+  }
 };
 window.closePanel=function(){
   panelOpen=false;
@@ -604,7 +661,7 @@ function showDish(idx){
   selectInViz(idx);
   var d=DATA.dishInfo[idx];
   /* Auto-open panel and show detail */
-  if(!panelOpen) togglePanel();
+  if(!panelOpen) togglePanel(false);
   /* Hide list, show detail directly for node-click experience */
   document.getElementById('dish-list').style.maxHeight='0';
   document.getElementById('dish-list').style.overflow='hidden';
@@ -790,35 +847,35 @@ scene.add(stars);
 
 document.getElementById('intro-label').textContent='From rice roots to biryani leaves, follow the ingredient branches.';
 
-var TREE={baseY:-8,trunkTop:0,canopyTop:200,branchRadius:14};
+var TREE={baseY:-12,trunkTop:4,canopyTop:200,branchRadius:14};
 
 function normalizeIngredient(raw){
   if(!raw) return '';
   var s=String(raw).toLowerCase();
-  s=s.replace(/\([^)]*\)/g,'');
-  s=s.replace(/[^a-z\s]/g,' ');
-  s=s.replace(/\b(as required|to taste|a few|few|some|little|about|approx|approximate|as needed)\b/g,'');
-  s=s.replace(/\b(number|numbers|tsp|tbsp|tablespoon|teaspoon|cup|cups|gm|g|kg|ml|l|inch|inches|piece|pieces|sprig|sprigs|clove|cloves|pod|pods|stick|sticks|leaf|leaves|slice|slices)\b/g,'');
-  s=s.replace(/\b[0-9]+\b/g,'');
-  s=s.replace(/\b(and|or|with|of|for|the|a|an|as|required|taste)\b/g,'');
-  s=s.replace(/\s+/g,' ').trim();
+  s=s.replace(/\\([^)]*\\)/g,'');
+  s=s.replace(/[^a-z\\s]/g,' ');
+  s=s.replace(/\\b(as required|to taste|a few|few|some|little|about|approx|approximate|as needed)\\b/g,'');
+  s=s.replace(/\\b(number|numbers|tsp|tbsp|tablespoon|teaspoon|cup|cups|gm|g|kg|ml|l|inch|inches|piece|pieces|sprig|sprigs|clove|cloves|pod|pods|stick|sticks|leaf|leaves|slice|slices)\\b/g,'');
+  s=s.replace(/\\b[0-9]+\\b/g,'');
+  s=s.replace(/\\b(and|or|with|of|for|the|a|an|as|required|taste)\\b/g,'');
+  s=s.replace(/\\s+/g,' ').trim();
   return s;
 }
 
 function cleanLabel(text){
   if(!text) return '';
-  var s=text.replace(/\s+/g,' ').trim();
+  var s=text.replace(/\\s+/g,' ').trim();
   if(!s || s==='other') return '';
-  s=s.replace(/\b(powder|paste|chopped|sliced|ground|crushed|fresh|dry|dried)\b/g,'');
-  s=s.replace(/\s+/g,' ').trim();
+  s=s.replace(/\\b(powder|paste|chopped|sliced|ground|crushed|fresh|dry|dried)\\b/g,'');
+  s=s.replace(/\\s+/g,' ').trim();
   s=s.split(' ').filter(function(t){return t.length>1;}).slice(0,3).join(' ');
-  s=s.replace(/\b([a-z])/g,function(m){return m.toUpperCase();});
+  s=s.replace(/\\b([a-z])/g,function(m){return m.toUpperCase();});
   if(s.length>24) s=s.slice(0,22)+'…';
   return s;
 }
 
 function titleCase(text){
-  return String(text||'').replace(/\b([a-z])/g,function(m){return m.toUpperCase();});
+  return String(text||'').replace(/\\b([a-z])/g,function(m){return m.toUpperCase();});
 }
 
 function buildTreeLayout(){
@@ -833,7 +890,7 @@ function buildTreeLayout(){
   var clusterAngleStep=(Math.PI*2)/numClusters;
 
   /* Tree step sizes — WIDE horizontal, very flat */
-  var RADIUS_STEP=9;
+  var RADIUS_STEP=15;
   var HEIGHT_STEP=0.4;
 
   /* ---- Common ingredients for trunk decoration ---- */
@@ -844,20 +901,21 @@ function buildTreeLayout(){
     list.forEach(function(ing){if(uniq.indexOf(ing)===-1) uniq.push(ing);});
     uniq.forEach(function(ing){ingredientCounts[ing]=(ingredientCounts[ing]||0)+1;});
   });
-  var commonIgnore={'salt':1,'water':1,'oil':1,'ghee':1};
+  var commonIgnore={'salt':1,'water':1,'oil':1};
   function isRice(ing){return ing.indexOf('rice')>=0;}
   var commonList=Object.keys(ingredientCounts).filter(function(ing){
     return !isRice(ing) && !commonIgnore[ing];
   }).sort(function(a,b){return ingredientCounts[b]-ingredientCounts[a];})
     .map(cleanLabel).filter(Boolean)
     .filter(function(v,i,a){return a.indexOf(v)===i;})
-    .slice(0,8);
+    .slice(0,10);
 
   var commonNodes=[];
   commonList.forEach(function(name,idx){
-    var r=2.6;
+    // Match the trunk cylinder radius which is 2.5 to 3.2 
+    var r=2.85; 
     var angle=idx*(Math.PI*2/Math.max(1,commonList.length));
-    var y=TREE.baseY+4+idx*1.2;
+    var y=TREE.baseY+3+idx*1.5;
     commonNodes.push({name:name,x:Math.cos(angle)*r,y:y,z:Math.sin(angle)*r});
   });
 
@@ -1002,7 +1060,7 @@ baseGlow.position.y=TREE.baseY+0.02;
 scene.add(baseGlow);
 
 // Trunk
-var trunkGeo=new THREE.CylinderGeometry(1.2,1.6,TREE.trunkTop-TREE.baseY,18,1,true);
+var trunkGeo=new THREE.CylinderGeometry(2.5,3.2,TREE.trunkTop-TREE.baseY,18,1,true);
 var trunkMat=new THREE.MeshPhongMaterial({color:0x6b4a2e,shininess:10,transparent:true,opacity:0.98});
 var trunk=new THREE.Mesh(trunkGeo,trunkMat);
 trunk.position.y=(TREE.baseY+TREE.trunkTop)/2;
