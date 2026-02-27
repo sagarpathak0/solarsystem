@@ -436,960 +436,400 @@ def build_html(data_json):
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Biryani World Tree</title>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Biryani Ingredient Tree</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#100b06;--panel:#17110b;--border:#2b1f12;--text:#f3eee6;--muted:#b8a98c;--accent:#e89b3a;--leaf:#7aa96b;--rice:#f4e2c3}
-body{overflow:hidden;background:#050510;font-family:'Space Grotesk','Segoe UI',sans-serif;color:var(--text)}
-body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 120% 60% at 50% 0%,rgba(20,15,40,0.9),transparent 60%),radial-gradient(ellipse 80% 50% at 80% 100%,rgba(30,10,5,0.7),transparent 60%);pointer-events:none;z-index:0}
-#scene-shell{position:fixed;top:56px;left:14px;right:14px;bottom:14px;z-index:0;border-radius:36px 36px 52px 52px;background:transparent;border:none;box-shadow:none}
-#canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:1}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#080f1e;font-family:'Inter',sans-serif;overflow:hidden;width:100vw;height:100vh;color:#e8e0d0}
+  #canvas{display:block}
+  #header{position:fixed;top:18px;left:50%;transform:translateX(-50%);text-align:center;z-index:60;pointer-events:none}
+  #header h1{font-family:'Playfair Display',serif;font-size:24px;color:#e8c97a;letter-spacing:3px;text-shadow:0 0 30px rgba(232,201,122,.45)}
+  #header p{font-size:10px;color:#4a5e80;margin-top:5px;letter-spacing:2.5px;text-transform:uppercase}
 
-#tree-summary{position:fixed;top:72px;left:26px;z-index:70;width:300px;max-height:calc(100vh - 120px);overflow:auto;padding:0.85rem 0.9rem;background:rgba(19,14,10,0.78);border:1px solid rgba(255,255,255,0.1);border-radius:16px 28px 16px 24px;backdrop-filter:blur(8px)}
-#tree-summary h3{font-family:'Fraunces',serif;font-size:0.95rem;color:#f8d8a8;margin-bottom:0.45rem}
-#tree-summary h4{font-size:0.75rem;letter-spacing:0.04em;text-transform:uppercase;color:#d8be93;margin:0.6rem 0 0.35rem}
-#tree-summary ul{list-style:none;padding:0;margin:0}
-#tree-summary li{font-size:0.78rem;color:#e8dfd1;line-height:1.45;margin-bottom:0.22rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#tree-summary .muted{color:#b8a98c;font-size:0.75rem}
-@media (max-width:1050px){#tree-summary{display:none}}
+  #info-panel{position:fixed;right:18px;top:50%;transform:translateY(-50%) translateX(20px);width:280px;
+    background:rgba(6,14,28,.93);border:1px solid rgba(200,168,76,.22);border-radius:18px;padding:20px;
+    backdrop-filter:blur(14px);z-index:60;opacity:0;pointer-events:none;
+    transition:opacity .35s ease,transform .35s ease;max-height:76vh;overflow:auto}
+  #info-panel.visible{opacity:1;transform:translateY(-50%) translateX(0);pointer-events:auto}
+  .panel-emoji{font-size:34px;margin-bottom:9px;line-height:1}
+  .panel-name{font-family:'Playfair Display',serif;font-size:15px;color:#e8c97a;line-height:1.35;margin-bottom:8px}
+  .cuisine-badge{display:inline-block;padding:3px 11px;border-radius:20px;font-size:9px;font-weight:700;
+    letter-spacing:1.5px;text-transform:uppercase;margin-bottom:13px}
+  .section-title{font-size:8px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#2e4055;margin:10px 0 7px}
+  #panel-ingredients{list-style:none}
+  #panel-ingredients li{font-size:11.5px;color:#7a93ae;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:7px}
+  #panel-ingredients li::before{content:"◆";font-size:5px;color:#e8c97a;flex-shrink:0}
+  #panel-similar{list-style:none}
+  #panel-similar li{font-size:10.5px;color:#8ea3bc;line-height:1.5;margin:2px 0}
+  #panel-path{margin-top:11px;font-size:9.5px;color:#2e4055;font-style:italic;line-height:1.7;border-top:1px solid rgba(255,255,255,.04);padding-top:9px}
+  #close-panel{position:absolute;top:12px;right:12px;background:none;border:none;color:#2e4055;cursor:pointer;font-size:14px;line-height:1;padding:2px}
+  #close-panel:hover{color:#e8c97a}
 
-/* Top bar */
-#topbar{position:fixed;top:0;left:0;right:0;height:48px;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 1.2rem;background:rgba(5,5,16,0.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
-#topbar h1{font-family:'Fraunces',serif;font-size:0.95rem;letter-spacing:0.08em;text-transform:none;color:rgba(255,255,255,0.7);font-weight:600}
-#chef-toggle{display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.85rem;color:var(--muted)}
-#chef-toggle .dot{width:36px;height:20px;border-radius:10px;background:#333;position:relative;transition:background 0.3s}
-#chef-toggle .dot::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#888;top:2px;left:2px;transition:left 0.3s,background 0.3s}
+  #legend{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    background:rgba(6,14,28,.88);border:1px solid rgba(200,168,76,.13);border-radius:40px;
+    padding:9px 22px;display:flex;align-items:center;gap:5px 14px;flex-wrap:wrap;
+    justify-content:center;z-index:60;backdrop-filter:blur(10px);max-width:92vw}
+  .leg-title{font-size:8px;color:#2e4055;text-transform:uppercase;letter-spacing:1.5px}
+  .leg-item{display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6a7e92}
+  .leg-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+  .leg-sep{width:1px;height:16px;background:rgba(255,255,255,.07);margin:0 3px}
 
-/* Hover tooltip */
-#tooltip{position:fixed;z-index:50;pointer-events:none;opacity:0;transition:opacity 0.2s;background:rgba(8,6,16,0.92);border:1px solid rgba(232,155,58,0.25);border-radius:14px;padding:0.7rem 0.9rem;min-width:190px;backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,0.5)}
-#tooltip.show{opacity:1}
-#tooltip img{width:56px;height:56px;border-radius:10px;object-fit:cover;float:left;margin-right:0.65rem}
-#tooltip .tt-name{font-weight:600;font-size:0.88rem;margin-bottom:3px;color:#f8d8a8}
-#tooltip .tt-cuisine{font-size:0.73rem;color:var(--muted)}
-#tooltip .tt-desc{font-size:0.7rem;color:rgba(255,255,255,0.5);margin-top:3px;clear:both}
+  #controls{position:fixed;bottom:70px;right:18px;display:flex;flex-direction:column;gap:7px;z-index:60}
+  .ctrl-btn{width:36px;height:36px;border-radius:50%;background:rgba(6,14,28,.92);
+    border:1px solid rgba(200,168,76,.28);color:#a07a30;font-size:18px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:all .2s;line-height:1}
+  .ctrl-btn:hover{background:rgba(200,168,76,.14);border-color:#e8c97a;color:#e8c97a}
 
-/* Intro */
-#intro-label{position:fixed;left:50%;bottom:3.5rem;transform:translateX(-50%);color:rgba(255,255,255,0.6);font-size:0.95rem;z-index:20;transition:opacity 0.5s}
-#intro-label.hide{opacity:0;pointer-events:none}
-#skip{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:20;padding:0.5rem 1.2rem;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:999px;color:rgba(255,255,255,0.8);font-size:0.8rem;cursor:pointer}
-#skip:hover{background:rgba(255,255,255,0.12)}
-#skip.hide{display:none}
+  #qtip{position:fixed;background:rgba(6,14,28,.96);border:1px solid rgba(200,168,76,.35);
+    border-radius:8px;padding:7px 11px;font-size:11px;color:#c8d8e8;pointer-events:none;
+    z-index:200;display:none;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 
-/* Custom Scrollbars */
-#panel ::-webkit-scrollbar { width:6px; }
-#panel ::-webkit-scrollbar-track { background:transparent; }
-#panel ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:4px; }
-#panel ::-webkit-scrollbar-thumb:hover { background:rgba(232,155,58,0.5); }
+  svg{cursor:grab}
+  svg.grabbing{cursor:grabbing}
+  .nd{cursor:pointer}
+  .nd text{font-family:'Inter',sans-serif;user-select:none;pointer-events:none}
 
-/* Info panel — floating glassmorphic card */
-#panel{position:fixed;bottom:20px;right:20px;width:400px;max-height:60vh;z-index:80;background:rgba(12,8,20,0.88);border:1px solid rgba(232,155,58,0.2);border-radius:20px;transform:translateY(120%) scale(0.95);opacity:0;transition:transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275),opacity 0.35s ease;display:flex;flex-direction:column;overflow:hidden;backdrop-filter:blur(20px);box-shadow:0 16px 60px rgba(0,0,0,0.6),0 0 40px rgba(232,155,58,0.08),inset 0 1px 0 rgba(255,255,255,0.06)}
-#panel.open{transform:translateY(0) scale(1);opacity:1}
-#panel-close{position:absolute;top:0.6rem;right:0.6rem;background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;z-index:2;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.2s}
-#panel-close:hover{background:rgba(255,255,255,0.1)}
-#cuisine-filter{padding:0.6rem 0.8rem;border-bottom:1px solid rgba(255,255,255,0.06)}
-#cuisine-filter select{width:calc(100% - 32px);padding:0.35rem 0.5rem;background:rgba(255,255,255,0.05);color:var(--text);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:0.78rem}
-#cuisine-filter select option{background:var(--panel);color:var(--text)}
-#dish-list{max-height:160px;overflow-y:auto;border-bottom:1px solid rgba(255,255,255,0.06)}
-#dish-list .dish-item{padding:0.45rem 0.8rem;font-size:0.8rem;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.03);transition:background 0.15s}
-#dish-item:hover,.dish-item:hover{background:rgba(255,255,255,0.04)}
-#dish-item.active,.dish-item.active{background:rgba(240,165,0,0.12);color:var(--accent)}
-#dish-detail{flex:1;overflow-y:auto;display:none}
-#dish-detail.show{display:block}
-#dish-detail .detail-header{padding:0.9rem;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;gap:0.7rem;align-items:flex-start}
-#dish-detail .detail-header img{width:64px;height:64px;border-radius:12px;object-fit:cover;flex-shrink:0;border:2px solid rgba(232,155,58,0.25)}
-#dish-detail .detail-header h2{font-size:1rem;margin-bottom:0.25rem;font-family:'Fraunces',serif;color:#f8d8a8}
-#dish-detail .meta-tags{display:flex;gap:0.35rem;flex-wrap:wrap}
-#dish-detail .meta-tag{font-size:0.65rem;padding:0.15rem 0.45rem;background:rgba(232,155,58,0.1);border:1px solid rgba(232,155,58,0.15);border-radius:20px;color:var(--accent)}
-.tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 0.6rem;gap:0.1rem}
-.tab-btn{padding:0.35rem 0.5rem;font-size:0.68rem;color:var(--muted);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:color 0.2s,border-color 0.2s;white-space:nowrap}
-.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab-content{display:none;padding:0.7rem 0.9rem;font-size:0.8rem;line-height:1.55}
-.tab-content.show{display:block}
-.tab-content ul{margin:0;padding-left:1.1rem}
-.tab-content li{margin-bottom:0.25rem}
-.flavour-bar{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem}
-.flavour-bar .f-name{width:85px;text-align:right;font-size:0.72rem;color:var(--muted);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.flavour-bar .f-bar{flex:1;height:7px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden}
-.flavour-bar .f-fill{height:100%;border-radius:4px;transition:width 0.4s}
-.flavour-bar .f-val{font-size:0.68rem;color:var(--muted);width:28px}
-.read-more{color:var(--accent);cursor:pointer;font-size:0.72rem;margin-top:0.3rem;display:inline-block}
-.step-item{margin-bottom:0.5rem;padding-left:1.4rem;position:relative}
-.step-item::before{content:attr(data-n);position:absolute;left:0;width:1rem;height:1rem;border-radius:50%;background:rgba(240,165,0,0.15);color:var(--accent);font-size:0.6rem;display:flex;align-items:center;justify-content:center;top:2px}
-.step-style{font-size:0.68rem;color:var(--muted);margin-top:2px}
-.compound-row{display:flex;justify-content:space-between;padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.75rem}
-.compound-row span:last-child{color:var(--muted)}
-#panel-toggle{position:fixed;top:56px;right:12px;z-index:90;height:30px;padding:0 12px;border-radius:15px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:var(--muted);cursor:pointer;font-size:0.75rem;display:flex;align-items:center;justify-content:center;gap:5px;backdrop-filter:blur(8px);transition:background 0.2s}
-#panel-toggle:hover{background:rgba(255,255,255,0.12)}
+  #search-wrap{position:fixed;top:18px;left:18px;z-index:60}
+  #search{background:rgba(6,14,28,.88);border:1px solid rgba(200,168,76,.22);border-radius:10px;
+    padding:7px 13px;font-size:12px;color:#c8d8e8;width:220px;outline:none;
+    font-family:'Inter',sans-serif}
+  #search::placeholder{color:#2e4055}
+  #search:focus{border-color:rgba(200,168,76,.5)}
+  #search-clear{position:absolute;right:9px;top:50%;transform:translateY(-50%);background:none;border:none;color:#2e4055;cursor:pointer;font-size:14px;display:none}
+  #search-clear.visible{display:block}
 
-/* Waitlist modal */
-#modal-overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);align-items:center;justify-content:center}
-#modal-overlay.show{display:flex}
-#modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:2rem;width:340px;max-width:90vw;text-align:center}
-#modal h3{font-size:1.1rem;margin-bottom:0.5rem}
-#modal p{font-size:0.85rem;color:var(--muted);margin-bottom:1.2rem}
-#modal input[type=email]{width:100%;padding:0.6rem 0.8rem;background:#111;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;margin-bottom:0.4rem}
-#modal input[type=email]:focus{outline:none;border-color:var(--accent)}
-#modal .err{color:#ff6b6b;font-size:0.75rem;min-height:1rem;margin-bottom:0.6rem}
-#modal button{padding:0.6rem 1.5rem;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem}
-#modal button:hover{opacity:0.9}
-#modal .close-modal{position:absolute;top:0.8rem;right:1rem;background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer}
+  .nd.highlighted circle.main-circle{stroke:#e8c97a !important;stroke-width:3px !important}
+  .nd.dimmed{opacity:.18}
 </style>
 </head>
 <body>
-
-<!-- Top bar -->
-<div id="topbar">
-  <h1>Biryani World Tree</h1>
-  <div id="chef-toggle" onclick="toggleChef()">
-    <span>Chef Mode</span>
-    <div class="dot"></div>
-  </div>
+<div id="header">
+  <h1>🌿 Biryani Ingredient Tree</h1>
+  <p>Click nodes to expand · Hover dishes for details · Scroll to zoom · Drag to pan</p>
 </div>
 
-<div id="scene-shell"></div>
-
-<!-- 3D canvas -->
-<canvas id="canvas"></canvas>
-
-<aside id="tree-summary"></aside>
-
-<!-- Hover tooltip -->
-<div id="tooltip">
-  <img id="tt-img" src="" alt="">
-  <div class="tt-name" id="tt-name"></div>
-  <div class="tt-cuisine" id="tt-cuisine"></div>
-  <div class="tt-desc" id="tt-desc"></div>
+<div id="search-wrap">
+  <input id="search" placeholder="🔍  Search biryani or ingredient…" autocomplete="off">
+  <button id="search-clear" title="Clear">✕</button>
 </div>
 
-<!-- Intro -->
-<div id="intro-label"></div>
-<button id="skip">Skip intro</button>
+<svg id="canvas"></svg>
 
-<!-- Cuisine legend -->
-
-<!-- Panel toggle -->
-<button id="panel-toggle" onclick="togglePanel()">☰</button>
-
-<!-- Info panel -->
-<div id="panel">
-  <button id="panel-close" onclick="closePanel()">✕</button>
-  <div id="cuisine-filter">
-    <select id="cuisine-select" onchange="filterCuisine()">
-      <option value="">All cuisines</option>
-    </select>
-  </div>
-  <div id="dish-list"></div>
-  <div id="dish-detail">
-    <div class="detail-header">
-      <img id="detail-img" src="ambur_biryani.png" alt="Biryani">
-      <div>
-        <h2 id="detail-name"></h2>
-        <div class="meta-tags" id="detail-meta"></div>
-      </div>
-    </div>
-    <div class="tabs" id="tabs"></div>
-    <div id="tab-panels"></div>
-  </div>
+<div id="info-panel">
+  <button id="close-panel">✕</button>
+  <div class="panel-emoji" id="panel-emoji">🍽️</div>
+  <div class="panel-name" id="panel-name"></div>
+  <div class="cuisine-badge" id="panel-cuisine"></div>
+  <div class="section-title">Ingredients</div>
+  <ul id="panel-ingredients"></ul>
+  <div class="section-title">Top Similar</div>
+  <ul id="panel-similar"></ul>
+  <div id="panel-path"></div>
 </div>
 
-<!-- Waitlist modal -->
-<div id="modal-overlay">
-  <div id="modal" style="position:relative">
-    <button class="close-modal" onclick="closeModal()">✕</button>
-    <h3>Chef Mode</h3>
-    <p>Advanced AI-powered biryani analysis. Join the waitlist to be the first to try it.</p>
-    <input type="email" id="waitlist-email" placeholder="Enter your email">
-    <div class="err" id="email-err"></div>
-    <button onclick="submitWaitlist()">Join Waitlist</button>
-  </div>
+<div id="legend">
+  <span class="leg-title">Leaf colour = Cuisine</span>
+  <div class="leg-sep"></div>
 </div>
 
-<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<div id="controls">
+  <button class="ctrl-btn" id="btn-reset" title="Reset view">⊙</button>
+  <button class="ctrl-btn" id="btn-expand" title="Expand all">⊕</button>
+  <button class="ctrl-btn" id="btn-collapse" title="Collapse to trunks">⊖</button>
+</div>
+
+<div id="qtip"></div>
+
 <script>
-(function(){
-var THREE=window.THREE;
-if(!THREE){document.body.innerHTML='<div style="color:#fff;padding:3rem;text-align:center">Three.js did not load. Serve this page: <code>python -m http.server 8000</code></div>';return}
-
-var DATA="""
+const DATA="""
         + data_json
         + """;
 
-/* ======================== PLACEHOLDERS ======================== */
-var PLACEHOLDER_IMG='data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" rx="8" fill="#1a1a2e"/><circle cx="30" cy="26" r="14" fill="#f0a500" opacity="0.6"/><ellipse cx="30" cy="44" rx="20" ry="6" fill="#f0a500" opacity="0.3"/></svg>');
+const CLUSTER_COLOR = {};
+DATA.hierarchy.forEach((h, idx) => {
+  CLUSTER_COLOR[h.clusterLabel] = h.color || '#888';
+  CLUSTER_COLOR['cluster_' + (idx + 1)] = h.color || '#888';
+});
 
-/* ======================== PANEL LOGIC ======================== */
-var panelOpen=false;
-window.togglePanel=function(showList=true){
-  panelOpen=!panelOpen;
-  document.getElementById('panel').classList.toggle('open',panelOpen);
-  if (panelOpen && showList) {
-    document.getElementById('dish-list').style.maxHeight='160px';
-    document.getElementById('dish-list').style.overflowY='auto';
-    document.getElementById('dish-list').style.borderBottom='1px solid rgba(255,255,255,0.06)';
-    document.getElementById('cuisine-filter').style.display='block';
-    document.getElementById('dish-detail').classList.remove('show');
-  }
-};
-window.closePanel=function(){
-  panelOpen=false;
-  document.getElementById('panel').classList.remove('open');
-};
-// Cuisine filter
-var sel=document.getElementById('cuisine-select');
-DATA.cuisines.forEach(function(c){var o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o)});
-window.filterCuisine=function(){
-  var c=sel.value;
-  renderDishList(c);
-};
-function renderDishList(cuisineFilter){
-  var el=document.getElementById('dish-list');
-  el.innerHTML='';
-  DATA.dishInfo.forEach(function(d,i){
-    if(cuisineFilter&&d.cuisine!==cuisineFilter) return;
-    var div=document.createElement('div');
-    div.className='dish-item';
-    div.textContent=d.name;
-    div.onclick=function(){showDish(i)};
-    el.appendChild(div);
-  });
-}
-renderDishList('');
+const PALETTE = [
+  '#e74c3c','#4a90d9','#f39c12','#9b59b6','#27ae60','#e67e22','#1abc9c',
+  '#2ecc71','#d35400','#8e9eab','#16a085','#8e44ad','#f1c40f','#3498db'
+];
+const CUISINE_C = {};
+(DATA.cuisines || []).forEach((c, i) => { CUISINE_C[c] = PALETTE[i % PALETTE.length]; });
 
-function showDish(idx){
-  selectInViz(idx);
-  var d=DATA.dishInfo[idx];
-  /* Auto-open panel and show detail */
-  if(!panelOpen) togglePanel(false);
-  /* Hide list, show detail directly for node-click experience */
-  document.getElementById('dish-list').style.maxHeight='0';
-  document.getElementById('dish-list').style.overflow='hidden';
-  document.getElementById('dish-list').style.borderBottom='none';
-  document.getElementById('cuisine-filter').style.display='none';
-  document.getElementById('dish-detail').classList.add('show');
-  document.getElementById('detail-name').textContent=d.name;
-  document.getElementById('detail-img').src='ambur_biryani.png';
-  var meta='';
-  if(d.cuisine) meta+='<span class="meta-tag">'+d.cuisine+'</span>';
-  if(d.category) meta+='<span class="meta-tag">'+d.category+'</span>';
-  if(d.totalTime) meta+='<span class="meta-tag">'+d.totalTime+'</span>';
-  if(d.serves) meta+='<span class="meta-tag">Serves '+d.serves+'</span>';
-  document.getElementById('detail-meta').innerHTML=meta;
+function dishById(idx){ return (DATA.dishInfo && DATA.dishInfo[idx]) ? DATA.dishInfo[idx] : null; }
 
-  var tabNames=['Ingredients','Flavour','Steps','Compounds','Cooking Style','Similar'];
-  var tabsEl=document.getElementById('tabs');
-  var panelsEl=document.getElementById('tab-panels');
-  tabsEl.innerHTML='';panelsEl.innerHTML='';
-
-  tabNames.forEach(function(t,ti){
-    var btn=document.createElement('button');
-    btn.className='tab-btn'+(ti===0?' active':'');
-    btn.textContent=t;
-    btn.onclick=function(){
-      tabsEl.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active')});
-      btn.classList.add('active');
-      panelsEl.querySelectorAll('.tab-content').forEach(function(p){p.classList.remove('show')});
-      panelsEl.children[ti].classList.add('show');
-    };
-    tabsEl.appendChild(btn);
-
-    var panel=document.createElement('div');
-    panel.className='tab-content'+(ti===0?' show':'');
-
-    if(t==='Ingredients'){
-      if(d.ingredients.length){
-        panel.innerHTML='<ul>'+d.ingredients.map(function(ing){return '<li>'+ing+'</li>'}).join('')+'</ul>';
-      } else panel.innerHTML='<p style="color:var(--muted)">No ingredients listed.</p>';
-
-    } else if(t==='Flavour'){
-      var maxI=Math.max.apply(null,d.flavour.map(function(f){return f.intensity}));
-      if(maxI<=0) maxI=1;
-      var showCount=7;
-      var html='';
-      d.flavour.slice(0,showCount).forEach(function(f){
-        var pct=Math.round(f.intensity/maxI*100);
-        html+='<div class="flavour-bar"><span class="f-name" title="'+f.descriptor+'">'+f.descriptor+'</span><div class="f-bar"><div class="f-fill" style="width:'+pct+'%;background:var(--accent)"></div></div><span class="f-val">'+f.intensity.toFixed(2)+'</span></div>';
-      });
-      if(d.flavour.length>showCount){
-        html+='<span class="read-more" id="rm-'+idx+'">Show all '+d.flavour.length+' descriptors</span>';
-        html+='<div id="extra-'+idx+'" style="display:none">';
-        d.flavour.slice(showCount).forEach(function(f){
-          var pct=Math.round(f.intensity/maxI*100);
-          html+='<div class="flavour-bar"><span class="f-name" title="'+f.descriptor+'">'+f.descriptor+'</span><div class="f-bar"><div class="f-fill" style="width:'+pct+'%;background:var(--accent)"></div></div><span class="f-val">'+f.intensity.toFixed(2)+'</span></div>';
-        });
-        html+='</div>';
-      }
-      panel.innerHTML=html||'<p style="color:var(--muted)">No flavour data.</p>';
-      setTimeout(function(){
-        var rm=document.getElementById('rm-'+idx);
-        if(rm) rm.onclick=function(){
-          var ex=document.getElementById('extra-'+idx);
-          ex.style.display=ex.style.display==='none'?'block':'none';
-          rm.textContent=ex.style.display==='none'?'Show all '+d.flavour.length+' descriptors':'Show less';
-        };
-      },0);
-
-    } else if(t==='Steps'){
-      if(d.steps.length){
-        var h='';
-        d.steps.forEach(function(s){
-          h+='<div class="step-item" data-n="'+s.step+'">'+s.desc;
-          if(s.style) h+='<div class="step-style">'+s.style+(s.dur?' · '+s.dur+' min':'')+'</div>';
-          h+='</div>';
-        });
-        panel.innerHTML=h;
-      } else panel.innerHTML='<p style="color:var(--muted)">No steps listed.</p>';
-
-    } else if(t==='Compounds'){
-      if(d.compounds.length){
-        var h='';
-        d.compounds.forEach(function(c){
-          h+='<div class="compound-row"><span>'+c.compound+' <small style="color:var(--muted)">(' +c.ingredient+')</small></span><span>'+(c.conc!=null?c.conc+'%':'')+'</span></div>';
-        });
-        panel.innerHTML=h;
-      } else panel.innerHTML='<p style="color:var(--muted)">No compound data.</p>';
-
-    } else if(t==='Cooking Style'){
-      var sd=d.styleDetails||[];
-      var si=d.stepIngredients||[];
-      var h='';
-      if(sd.length){
-        h+='<div style="margin-bottom:0.7rem"><strong style="font-size:0.85rem;color:var(--accent)">Techniques</strong>';
-        sd.forEach(function(s){
-          h+='<div class="step-item" style="margin-bottom:0.4rem"><strong>'+s.style+'</strong>';
-          if(s.temp) h+='<div style="font-size:0.75rem;color:var(--muted)">Temp: '+s.temp+'</div>';
-          if(s.browning) h+='<div style="font-size:0.75rem;color:var(--muted)">Browning: '+s.browning+'</div>';
-          if(s.moisture) h+='<div style="font-size:0.75rem;color:var(--muted)">Moisture: '+s.moisture+'</div>';
-          h+='</div>';
-        });
-        h+='</div>';
-      }
-      if(si.length){
-        h+='<strong style="font-size:0.85rem;color:var(--accent)">Step Ingredients</strong>';
-        var byStep={};
-        si.forEach(function(r){var k=r.step;if(!byStep[k])byStep[k]=[];byStep[k].push(r)});
-        Object.keys(byStep).sort(function(a,b){return a-b}).forEach(function(sn){
-          h+='<div class="step-item" data-n="'+sn+'">';
-          byStep[sn].forEach(function(r){
-            h+=r.ingredient+(r.quantity?' ('+r.quantity+')':'')+(r.purpose?' <small style="color:var(--muted)">– '+r.purpose+'</small>':'')+', ';
-          });
-          h=h.replace(/, $/,'')+'</div>';
-        });
-      }
-      panel.innerHTML=h||'<p style="color:var(--muted)">No cooking style data.</p>';
-    } else if(t==='Similar'){
-      var ts=d.topSimilar||[];
-      if(ts.length){
-        var h='<p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem">Top 3 most similar biryanis:</p><ul>';
-        ts.forEach(function(s){
-          h+='<li><strong>'+s.name+'</strong> <span style="color:var(--muted);font-size:0.8rem">(similarity: '+(s.score*100).toFixed(1)+'%)</span></li>';
-        });
-        h+='</ul>';
-        panel.innerHTML=h;
-      } else panel.innerHTML='<p style="color:var(--muted)">No similarity data.</p>';
-    }
-    panelsEl.appendChild(panel);
-  });
-
-  document.querySelectorAll('.dish-item').forEach(function(el){el.classList.remove('active')});
-  var items=document.getElementById('dish-list').children;
-  for(var k=0;k<items.length;k++) if(items[k].textContent===d.name) items[k].classList.add('active');
-
-  if(!panelOpen) togglePanel();
-}
-
-/* ======================== CHEF MODE / WAITLIST ======================== */
-window.toggleChef=function(){
-  document.getElementById('modal-overlay').classList.add('show');
-};
-window.closeModal=function(){
-  document.getElementById('modal-overlay').classList.remove('show');
-  document.getElementById('email-err').textContent='';
-};
-window.submitWaitlist=function(){
-  var email=document.getElementById('waitlist-email').value.trim();
-  var err=document.getElementById('email-err');
-  if(!email){err.textContent='Please enter an email address.';return}
-  if(email.length>254){err.textContent='Email is too long.';return}
-  var re=/^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-  if(!re.test(email)){err.textContent='Please enter a valid email address.';return}
-  err.style.color='#2ed573';
-  err.textContent='You have been added to the waitlist!';
-  document.getElementById('waitlist-email').value='';
-  setTimeout(closeModal,2000);
-};
-document.getElementById('modal-overlay').onclick=function(e){if(e.target===this) closeModal()};
-
-/* ======================== THREE.JS SCENE ======================== */
-var canvas=document.getElementById('canvas');
-var scene=new THREE.Scene();
-var camera=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,0.1,1000);
-camera.position.set(0,6,42);
-var renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true});
-renderer.setSize(innerWidth,innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-renderer.setClearColor(0x050510,1);
-
-/* ---- Starfield background ---- */
-var starCount=600;
-var starGeo=new THREE.BufferGeometry();
-var starPos=new Float32Array(starCount*3);
-for(var si=0;si<starCount;si++){
-  starPos[si*3]=(Math.random()-0.5)*400;
-  starPos[si*3+1]=(Math.random()-0.5)*300;
-  starPos[si*3+2]=(Math.random()-0.5)*400;
-}
-starGeo.setAttribute('position',new THREE.BufferAttribute(starPos,3));
-var starMat=new THREE.PointsMaterial({color:0xffffff,size:0.25,transparent:true,opacity:0.5,sizeAttenuation:true});
-var stars=new THREE.Points(starGeo,starMat);
-scene.add(stars);
-
-document.getElementById('intro-label').textContent='From rice roots to biryani leaves, follow the ingredient branches.';
-
-var TREE={baseY:-12,trunkTop:4,canopyTop:200,branchRadius:14};
-
-function normalizeIngredient(raw){
-  if(!raw) return '';
-  var s=String(raw).toLowerCase();
-  s=s.replace(/\\([^)]*\\)/g,'');
-  s=s.replace(/[^a-z\\s]/g,' ');
-  s=s.replace(/\\b(as required|to taste|a few|few|some|little|about|approx|approximate|as needed)\\b/g,'');
-  s=s.replace(/\\b(number|numbers|tsp|tbsp|tablespoon|teaspoon|cup|cups|gm|g|kg|ml|l|inch|inches|piece|pieces|sprig|sprigs|clove|cloves|pod|pods|stick|sticks|leaf|leaves|slice|slices)\\b/g,'');
-  s=s.replace(/\\b[0-9]+\\b/g,'');
-  s=s.replace(/\\b(and|or|with|of|for|the|a|an|as|required|taste)\\b/g,'');
-  s=s.replace(/\\s+/g,' ').trim();
-  return s;
-}
-
-function cleanLabel(text){
-  if(!text) return '';
-  var s=text.replace(/\\s+/g,' ').trim();
-  if(!s || s==='other') return '';
-  s=s.replace(/\\b(powder|paste|chopped|sliced|ground|crushed|fresh|dry|dried)\\b/g,'');
-  s=s.replace(/\\s+/g,' ').trim();
-  s=s.split(' ').filter(function(t){return t.length>1;}).slice(0,3).join(' ');
-  s=s.replace(/\\b([a-z])/g,function(m){return m.toUpperCase();});
-  if(s.length>24) s=s.slice(0,22)+'…';
-  return s;
-}
-
-function titleCase(text){
-  return String(text||'').replace(/\\b([a-z])/g,function(m){return m.toUpperCase();});
-}
-
-function buildTreeLayout(){
-  /* ---- Hierarchical tree from DATA.hierarchy (built in Python) ---- */
-  var nodePositions=[];
-  var lineSegments=[];
-  var junctionNodes=[];  /* internal tree nodes at each level */
-  var branchNames=[];
-  var branchCounts={};
-
-  var numClusters=DATA.hierarchy.length;
-  var clusterAngleStep=(Math.PI*2)/numClusters;
-
-  /* Tree step sizes — WIDE horizontal, very flat */
-  var RADIUS_STEP=15;
-  var HEIGHT_STEP=0.4;
-
-  /* ---- Common ingredients for trunk decoration ---- */
-  var ingredientCounts={};
-  DATA.dishInfo.forEach(function(d){
-    var list=(d.ingredients||[]).map(normalizeIngredient).filter(Boolean);
-    var uniq=[];
-    list.forEach(function(ing){if(uniq.indexOf(ing)===-1) uniq.push(ing);});
-    uniq.forEach(function(ing){ingredientCounts[ing]=(ingredientCounts[ing]||0)+1;});
-  });
-  var commonIgnore={'salt':1,'water':1,'oil':1};
-  function isRice(ing){return ing.indexOf('rice')>=0;}
-  var commonList=Object.keys(ingredientCounts).filter(function(ing){
-    return !isRice(ing) && !commonIgnore[ing];
-  }).sort(function(a,b){return ingredientCounts[b]-ingredientCounts[a];})
-    .map(cleanLabel).filter(Boolean)
-    .filter(function(v,i,a){return a.indexOf(v)===i;})
-    .slice(0,10);
-
-  var commonNodes=[];
-  commonList.forEach(function(name,idx){
-    // Match the trunk cylinder radius which is 2.5 to 3.2 
-    var r=2.85; 
-    var angle=idx*(Math.PI*2/Math.max(1,commonList.length));
-    var y=TREE.baseY+3+idx*1.5;
-    commonNodes.push({name:name,x:Math.cos(angle)*r,y:y,z:Math.sin(angle)*r});
-  });
-
-  commonNodes.forEach(function(n){
-    lineSegments.push({a:{x:0,y:n.y,z:0},b:{x:n.x,y:n.y,z:n.z}});
-  });
-
-  /* ---- Recursive tree node positioning ---- */
-  function countLeaves(node){
-    if(node.t==='l') return 1;
-    var c=0;
-    (node.c||[]).forEach(function(ch){c+=countLeaves(ch);});
-    return c;
-  }
-
-  function layoutNode(node,posX,posY,posZ,angleCenter,arcSpan,depth,color){
-    if(node.t==='l'){
-      /* Leaf node: a biryani dish */
-      nodePositions[node.id]={x:posX,y:posY,z:posZ};
-      return;
-    }
-    /* Group node: record as junction, then position children */
-    junctionNodes.push({
-      x:posX,y:posY,z:posZ,
-      label:node.lb||'',
-      color:color,
-      depth:depth
-    });
-
-    var children=node.c||[];
-    var n=children.length;
-    if(n===0) return;
-
-    /* Proportional arc: each child gets arc proportional to its leaf count */
-    var totalLeaves=0;
-    var leafCounts=[];
-    children.forEach(function(child){
-      var lc=countLeaves(child);
-      leafCounts.push(lc);
-      totalLeaves+=lc;
-    });
-
-    var startAngle=angleCenter-arcSpan/2;
-    var currentAngle=startAngle;
-
-    children.forEach(function(child,i){
-      var childArc=(leafCounts[i]/Math.max(1,totalLeaves))*arcSpan;
-      var childAngle=currentAngle+childArc/2;
-      currentAngle+=childArc;
-
-      /* Each child steps outward with slight height */
-      var rStep=RADIUS_STEP*(0.8+Math.random()*0.3);
-      var hStep=HEIGHT_STEP*(0.6+Math.random()*0.5);
-
-      var cx=posX+Math.cos(childAngle)*rStep;
-      var cz=posZ+Math.sin(childAngle)*rStep;
-      var cy=posY+hStep;
-
-      lineSegments.push({a:{x:posX,y:posY,z:posZ},b:{x:cx,y:cy,z:cz}});
-      /* Keep arc wide: don't shrink, enforce min 0.35 rad so children always fan out */
-      layoutNode(child,cx,cy,cz,childAngle,Math.max(childArc,0.35),depth+1,color);
-    });
-  }
-
-  /* ---- Layout each cluster from the trunk ---- */
-  DATA.hierarchy.forEach(function(cluster,idx){
-    var baseAngle=idx*clusterAngleStep;
-    var arcSpan=clusterAngleStep*0.92;
-    var color=cluster.color;
-    var tree=cluster.tree;
-
-    branchNames.push(cluster.clusterLabel);
-    branchCounts[cluster.clusterLabel]=countLeaves(tree);
-
-    /* Root branch point at branchRadius from trunk */
-    var bx=Math.cos(baseAngle)*TREE.branchRadius;
-    var bz=Math.sin(baseAngle)*TREE.branchRadius;
-    var by=TREE.trunkTop+2;
-
-    lineSegments.push({a:{x:0,y:by,z:0},b:{x:bx,y:by,z:bz}});
-
-    /* Start recursive layout from this branch point */
-    tree.lb=cluster.clusterLabel;
-    layoutNode(tree,bx,by,bz,baseAngle,arcSpan,0,color);
-  });
-
-  var linePositions=new Float32Array(lineSegments.length*6);
-  lineSegments.forEach(function(seg,i){
-    var j=i*6;
-    linePositions[j]=seg.a.x;linePositions[j+1]=seg.a.y;linePositions[j+2]=seg.a.z;
-    linePositions[j+3]=seg.b.x;linePositions[j+4]=seg.b.y;linePositions[j+5]=seg.b.z;
-  });
-
+function toLeafNode(id){
+  const d = dishById(id) || {};
   return {
-    nodePositions:nodePositions,
-    junctionNodes:junctionNodes,
-    commonNodes:commonNodes,
-    linePositions:linePositions,
-    commonList:commonList,
-    branchCounts:branchCounts,
-    branchNames:branchNames
+    name: d.name || ('Dish ' + id),
+    type: 'leaf',
+    cuisine: d.cuisine || 'Unknown',
+    emoji: '🍽️',
+    ingredients: (d.ingredients || []).slice(0, 10),
+    dishId: id
   };
 }
 
-var layout=buildTreeLayout();
-var nodePositions=layout.nodePositions;
-
-function renderTreeSummary(layout){
-  var el=document.getElementById('tree-summary');
-  if(!el) return;
-  var common=(layout.commonList||[]);
-  var branchNames=(layout.branchNames||[]);
-  var counts=layout.branchCounts||{};
-  var branchList=branchNames.slice().sort(function(a,b){return (counts[b]||0)-(counts[a]||0);});
-  var html='<h3>Biryani Tree</h3>';
-  html+='<div class="muted">Rice at base • cluster branches • sub-groups by similarity • leaves are biryanis</div>';
-  html+='<h4>Common Ingredients</h4><ul>';
-  if(common.length){
-    common.forEach(function(name){html+='<li>'+titleCase(name)+'</li>';});
-  }else{
-    html+='<li class="muted">No common ingredients detected</li>';
-  }
-  html+='</ul>';
-  html+='<h4>Cluster Families</h4><ul>';
-  branchList.forEach(function(name){html+='<li>'+name+' <span class="muted">('+( counts[name]||0) +')</span></li>';});
-  html+='</ul>';
-  el.innerHTML=html;
+function toBranchNode(node, depth){
+  if(!node) return {name:'Group', type:'branch', children:[]};
+  if(node.t === 'l') return toLeafNode(node.id);
+  return {
+    name: node.lb || ('Group ' + depth),
+    type: 'branch',
+    children: (node.c || []).map(ch => toBranchNode(ch, depth + 1))
+  };
 }
-renderTreeSummary(layout);
 
-// Base rice
-var baseGeo=new THREE.CircleGeometry(7,64);
-var baseMat=new THREE.MeshPhongMaterial({color:0xf4e2c3,transparent:true,opacity:0.96,side:THREE.DoubleSide});
-var base=new THREE.Mesh(baseGeo,baseMat);
-base.rotation.x=-Math.PI/2;
-base.position.y=TREE.baseY;
-scene.add(base);
+const FOOD = {
+  name:'Biryani Kitchen', type:'root', emoji:'🌿',
+  children:(DATA.hierarchy || []).map((h, i) => ({
+    name: h.clusterLabel || ('Cluster ' + (i + 1)),
+    type:'trunk',
+    family:'cluster_' + (i + 1),
+    emoji:'🍲',
+    children:[toBranchNode(h.tree, 1)]
+  }))
+};
 
-var baseGlow=new THREE.Mesh(new THREE.CircleGeometry(9,64),new THREE.MeshBasicMaterial({color:0xe7cfa4,transparent:true,opacity:0.08,side:THREE.DoubleSide}));
-baseGlow.rotation.x=-Math.PI/2;
-baseGlow.position.y=TREE.baseY+0.02;
-scene.add(baseGlow);
+const FAMILY_C = {};
+FOOD.children.forEach((c, i) => { FAMILY_C[c.family] = CLUSTER_COLOR['cluster_' + (i + 1)] || '#888'; });
 
-// Trunk
-var trunkGeo=new THREE.CylinderGeometry(2.5,3.2,TREE.trunkTop-TREE.baseY,18,1,true);
-var trunkMat=new THREE.MeshPhongMaterial({color:0x6b4a2e,shininess:10,transparent:true,opacity:0.98});
-var trunk=new THREE.Mesh(trunkGeo,trunkMat);
-trunk.position.y=(TREE.baseY+TREE.trunkTop)/2;
-scene.add(trunk);
+function nodeColor(d){
+  if(d.data.type==='root') return '#e8c97a';
+  if(d.data.type==='trunk') return FAMILY_C[d.data.family] || '#888';
+  if(d.data.type==='leaf') return CUISINE_C[d.data.cuisine] || '#aaa';
+  const t=d.ancestors().find(a=>a.data.type==='trunk');
+  const base=t?FAMILY_C[t.data.family]:'#556';
+  return d3.interpolateRgb(base,'#2a3a4e')((d.depth-1)/4);
+}
+function nodeR(d){ return {root:22,trunk:16,leaf:10}[d.data.type] || 8; }
+function fontSize(d){ return {root:14,trunk:13,leaf:10}[d.data.type] || 11; }
+function linkW(d){ return {root:3,trunk:2.5}[d.source.data.type] || (d.target.data.type==='leaf'?1:1.7); }
+function linkAlpha(d){ return {root:.7,trunk:.55}[d.source.data.type] || .3; }
+function linkCol(d){
+  const t=d.target.ancestors().find(a=>a.data.type==='trunk');
+  return t?FAMILY_C[t.data.family]:'#3a4e66';
+}
 
-// Canopy glow
-var canopy=new THREE.Mesh(new THREE.SphereGeometry(24,28,28),new THREE.MeshBasicMaterial({color:0x466b3a,transparent:true,opacity:0.03}));
-canopy.position.y=TREE.canopyTop/2;
-scene.add(canopy);
+const W=window.innerWidth, H=window.innerHeight;
+const R=Math.min(W,H)*0.41;
 
-// Common ingredient nodes along trunk — interactive with hover
-var ingredientOrbs=[];
-layout.commonNodes.forEach(function(n){
-  var node=new THREE.Mesh(new THREE.SphereGeometry(0.45,18,18),new THREE.MeshPhongMaterial({color:0xd9c199,emissive:0x5a4830,shininess:60,transparent:true,opacity:0.92}));
-  node.position.set(n.x,n.y,n.z);
-  node.userData={type:'ingredient',name:n.name};
-  var glow=new THREE.Mesh(new THREE.SphereGeometry(0.7,10,10),new THREE.MeshBasicMaterial({color:0xd9c199,transparent:true,opacity:0.06}));
-  node.add(glow);
-  ingredientOrbs.push(node);
-  scene.add(node);
+const svg=d3.select('#canvas').attr('width',W).attr('height',H);
+const defs=svg.append('defs');
+const bg=defs.append('radialGradient').attr('id','bg').attr('cx','50%').attr('cy','50%').attr('r','70%');
+bg.append('stop').attr('offset','0%').attr('stop-color','#0e1d35');
+bg.append('stop').attr('offset','100%').attr('stop-color','#050a15');
+svg.append('rect').attr('width',W).attr('height',H).attr('fill','url(#bg)');
+
+['glow','sGlow'].forEach((id,i)=>{
+  const f=defs.append('filter').attr('id',id);
+  f.append('feGaussianBlur').attr('stdDeviation',i===0?5:2.5).attr('result','cb');
+  const m=f.append('feMerge');
+  m.append('feMergeNode').attr('in','cb');
+  m.append('feMergeNode').attr('in','SourceGraphic');
 });
 
-// Junction nodes at all hierarchy levels with text labels
-function makeTextSprite(text,color,scale){
-  var canvas=document.createElement('canvas');
-  var ctx=canvas.getContext('2d');
-  canvas.width=512;canvas.height=64;
-  ctx.clearRect(0,0,512,64);
-  ctx.font='bold '+(scale>5?'22':'18')+'px Space Grotesk,sans-serif';
-  ctx.fillStyle=color||'#f8d8a8';
-  ctx.textAlign='center';
-  ctx.textBaseline='middle';
-  var label=text.length>28?text.slice(0,26)+'…':text;
-  ctx.fillText(label,256,32);
-  var tex=new THREE.CanvasTexture(canvas);
-  tex.minFilter=THREE.LinearFilter;
-  var mat=new THREE.SpriteMaterial({map:tex,transparent:true,opacity:0.88,depthTest:false});
-  var sprite=new THREE.Sprite(mat);
-  sprite.scale.set(scale||6,scale/6||1,1);
-  return sprite;
-}
-
-layout.junctionNodes.forEach(function(n){
-  var col=new THREE.Color(n.color);
-  /* Sphere size decreases with depth */
-  var sphereR=Math.max(0.3,0.9-n.depth*0.15);
-  var node=new THREE.Mesh(
-    new THREE.SphereGeometry(sphereR,16,16),
-    new THREE.MeshPhongMaterial({color:col,emissive:col.clone().multiplyScalar(0.3),shininess:40,transparent:true,opacity:0.92})
-  );
-  node.position.set(n.x,n.y,n.z);
-  scene.add(node);
-  /* Label: show for top 2 levels or if label is non-empty */
-  if(n.label && n.depth<=2){
-    var spriteScale=n.depth===0?8:n.depth===1?5:4;
-    var label=makeTextSprite(n.label,n.color,spriteScale);
-    label.position.set(n.x,n.y+sphereR+0.6,n.z);
-    scene.add(label);
-  }
+const root2=svg.append('g').attr('id','root2').attr('transform',`translate(${W/2},${H/2})`);
+const rings=root2.append('g');
+[1,2,3,4].forEach(d=>{
+  rings.append('circle').attr('r',d*(R/4))
+    .attr('fill','none')
+    .attr('stroke',`rgba(255,255,255,${d===4?.05:.025})`)
+    .attr('stroke-dasharray',d===4?'5,10':'3,9');
 });
 
-// Connection lines
-var lineMat=new THREE.LineBasicMaterial({color:0x9c8b6b,transparent:true,opacity:0});
-var lineGeo=new THREE.BufferGeometry();
-lineGeo.setAttribute('position',new THREE.BufferAttribute(layout.linePositions,3));
-var lines=new THREE.LineSegments(lineGeo,lineMat);
-scene.add(lines);
+const gLink=root2.append('g').attr('class','links');
+const gNode=root2.append('g').attr('class','nodes');
 
-// Biryani leaves (smaller to reduce overlap)
-var orbs=[];
-DATA.nodes.forEach(function(n,i){
-  var hex=n.color.replace('#','');
-  var r=parseInt(hex.slice(0,2),16)/255;
-  var g=parseInt(hex.slice(2,4),16)/255;
-  var b=parseInt(hex.slice(4,6),16)/255;
-  var col=new THREE.Color(r,g,b);
+const treeLayout=d3.tree()
+  .size([2*Math.PI,R])
+  .separation((a,b)=>(a.parent===b.parent?1:2)/a.depth);
 
-  var geo=new THREE.SphereGeometry(0.5,20,20);
-  var mat=new THREE.MeshPhongMaterial({color:col,emissive:col.clone().multiplyScalar(0.45),shininess:70,transparent:true,opacity:0.96});
-  var mesh=new THREE.Mesh(geo,mat);
-  var pos=nodePositions[i];
-  mesh.position.set(pos.x,pos.y,pos.z);
-  mesh.userData={name:n.name,id:i,cuisine:n.cuisine,cluster:n.cluster,color:n.color,clusterLabel:n.clusterLabel||''};
-
-  var glowGeo=new THREE.SphereGeometry(0.75,12,12);
-  var glowMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.1});
-  var glow=new THREE.Mesh(glowGeo,glowMat);
-  mesh.add(glow);
-
-  orbs.push(mesh);
-  scene.add(mesh);
+let rootNode=d3.hierarchy(FOOD);
+let uid=0; rootNode.each(d=>d.id=uid++);
+rootNode.each(d=>{
+  d._children=d.children?[...d.children]:null;
+  if(d.depth>=3) d.children=null;
+  d.x0=0; d.y0=0;
 });
 
-// Selection lines (clicked node to top 3 similar)
-var selLinePos=new Float32Array(3*2*3);
-var selLineGeo=new THREE.BufferGeometry();
-selLineGeo.setAttribute('position',new THREE.BufferAttribute(selLinePos,3));
-var selLineMat=new THREE.LineBasicMaterial({color:0xffdd88,linewidth:2,transparent:true,opacity:0.95});
-var selLines=new THREE.LineSegments(selLineGeo,selLineMat);
-selLines.visible=false;
-scene.add(selLines);
+const diagonal=d3.linkRadial().angle(d=>d.x).radius(d=>d.y);
+const px=(d)=>`translate(${d.y*Math.sin(d.x)},${-d.y*Math.cos(d.x)})`;
+const pxSrc=(src)=>`translate(${(src.y0||0)*Math.sin(src.x0||0)},${-(src.y0||0)*Math.cos(src.x0||0)})`;
 
-// Lights — warm ambient + soft directional + golden point for tree
-scene.add(new THREE.AmbientLight(0x1a1230,0.7));
-var dl=new THREE.DirectionalLight(0xffe8cc,0.55);dl.position.set(20,40,15);scene.add(dl);
-var dl2=new THREE.DirectionalLight(0x8888ff,0.15);dl2.position.set(-15,20,-10);scene.add(dl2);
-var pl=new THREE.PointLight(0xe89b3a,0.6,80);pl.position.set(0,10,0);scene.add(pl);
+const panel=document.getElementById('info-panel');
+const pEmoji=document.getElementById('panel-emoji');
+const pName=document.getElementById('panel-name');
+const pCuisine=document.getElementById('panel-cuisine');
+const pIngr=document.getElementById('panel-ingredients');
+const pSimilar=document.getElementById('panel-similar');
+const pPath=document.getElementById('panel-path');
+const qtip=document.getElementById('qtip');
 
-/* ======================== CAMERA INTRO (4 sec, single direction) ======================== */
-var introActive=true;
-var introStartPos=new THREE.Vector3(0,55,45);
-var introEndPos=new THREE.Vector3(0,40,50);
-var introDuration=4;
-var introElapsed=0;
+function showLeaf(event,d){
+  if(d.data.type!=='leaf') return;
+  const info = dishById(d.data.dishId) || {};
+  pEmoji.textContent='🍽️';
+  pName.textContent=info.name || d.data.name;
+  const c=CUISINE_C[info.cuisine || d.data.cuisine]||'#888';
+  pCuisine.textContent=info.cuisine || d.data.cuisine || 'Unknown';
+  pCuisine.style.cssText=`background:${c}20;color:${c};border:1px solid ${c}45`;
+  pIngr.innerHTML=(info.ingredients||d.data.ingredients||[]).slice(0,12).map(i=>`<li>${i}</li>`).join('');
+  const topSimilar=(info.topSimilar||[]).slice(0,3);
+  pSimilar.innerHTML=topSimilar.length
+    ? topSimilar.map(s=>`<li>${s.name} (${(s.score*100).toFixed(1)}%)</li>`).join('')
+    : '<li>No similarity data</li>';
+  pPath.textContent=d.ancestors().reverse().map(a=>a.data.name).join(' → ');
+  panel.classList.add('visible');
+}
+document.getElementById('close-panel').onclick=()=>panel.classList.remove('visible');
 
-function updateIntro(dt){
-  introElapsed+=dt;
-  var t=Math.min(1,introElapsed/introDuration);
-  camera.position.lerpVectors(introStartPos,introEndPos,t);
-  camera.lookAt(0,8,0);
-  lineMat.opacity=Math.min(1,introElapsed/2)*0.35;
-  if(t>=1){ introActive=false; finishIntro(); }
+function showQtip(event,d){
+  if(d.data.type==='leaf'){showLeaf(event,d);return;}
+  const state=d.children?'click to collapse':'click to expand';
+  qtip.textContent=`${d.data.emoji?d.data.emoji+' ':''}${d.data.name} (${state})`;
+  qtip.style.display='block';
+  qtip.style.left=(event.clientX+14)+'px';
+  qtip.style.top=(event.clientY-8)+'px';
 }
-function finishIntro(){
-  introActive=false;
-  document.getElementById('intro-label').classList.add('hide');
-  document.getElementById('skip').classList.add('hide');
-  lineMat.opacity=0.35;
-  orbitEnabled=true;cameraRadius=80;cPhi=0.65;updateCam();
-}
-document.getElementById('skip').onclick=finishIntro;
+function hideQtip(){qtip.style.display='none';}
 
-/* ======================== ORBIT CONTROLS ======================== */
-var orbitCenter=new THREE.Vector3(0,2,0);
-var orbitEnabled=false,cameraRadius=80,cTheta=0.3,cPhi=0.65,dragStart=null;
-function updateCam(){
-  var dx=cameraRadius*Math.sin(cPhi)*Math.cos(cTheta);
-  var dy=cameraRadius*Math.cos(cPhi);
-  var dz=cameraRadius*Math.sin(cPhi)*Math.sin(cTheta);
-  camera.position.set(orbitCenter.x+dx,orbitCenter.y+dy,orbitCenter.z+dz);
-  camera.lookAt(orbitCenter);
+function update(src){
+  const dur=650;
+  treeLayout(rootNode);
+  const nodes=rootNode.descendants();
+  const links=rootNode.links();
+  nodes.forEach(d=>{ d.y=d.depth*(R/4); });
+
+  const link=gLink.selectAll('path.lk').data(links,d=>d.target.id);
+  link.enter().append('path').attr('class','lk')
+    .attr('fill','none')
+    .attr('d',()=>{const o={x:src.x0||0,y:src.y0||0};return diagonal({source:o,target:o});})
+    .attr('stroke',d=>linkCol(d)).attr('stroke-width',d=>linkW(d)).attr('stroke-opacity',0)
+    .merge(link)
+    .transition().duration(dur)
+    .attr('d',diagonal)
+    .attr('stroke',d=>linkCol(d)).attr('stroke-width',d=>linkW(d)).attr('stroke-opacity',d=>linkAlpha(d));
+  link.exit().transition().duration(dur)
+    .attr('d',()=>{const o={x:src.x,y:src.y};return diagonal({source:o,target:o});})
+    .attr('stroke-opacity',0).remove();
+
+  const node=gNode.selectAll('g.nd').data(nodes,d=>d.id);
+  const ne=node.enter().append('g').attr('class',d=>`nd nd-${d.data.type}`)
+    .attr('transform',()=>pxSrc(src)).style('opacity',0)
+    .on('click',(ev,d)=>{
+      if(d.children){d._children=d.children;d.children=null;}
+      else if(d._children){d.children=d._children;d._children=null;}
+      d.x0=d.x; d.y0=d.y;
+      update(d);
+      clearSearch();
+    })
+    .on('mouseover',(ev,d)=>{showQtip(ev,d);})
+    .on('mouseout',()=>{hideQtip();});
+
+  ne.filter(d=>d.data.type==='leaf').append('circle').attr('class','leaf-ring')
+    .attr('r',d=>nodeR(d)+5).attr('fill','none').attr('stroke',d=>nodeColor(d)).attr('stroke-width',1).attr('stroke-opacity',.35);
+
+  ne.append('circle').attr('class','main-circle').attr('r',0)
+    .attr('fill',d=>nodeColor(d))
+    .attr('stroke','#060e1b').attr('stroke-width',2)
+    .attr('filter',d=>d.data.type==='root'?'url(#glow)':d.data.type==='trunk'?'url(#sGlow)':null);
+
+  ne.append('circle').attr('class','cdot').attr('r',2.5).attr('fill','#e8c97a').attr('opacity',0);
+
+  ne.append('text').attr('class','lbl').attr('dy','0.31em').style('opacity',0)
+    .attr('font-size',d=>fontSize(d)+'px')
+    .attr('fill',d=>d.data.type==='root'?'#e8c97a':d.data.type==='trunk'?nodeColor(d):d.data.type==='leaf'?'#b8cce0':'#6a8090')
+    .attr('font-weight',d=>d.data.type==='trunk'?600:400)
+    .text(d=>{
+      const em=d.data.emoji?d.data.emoji+' ':'';
+      return (d.data.type==='trunk'||d.data.type==='root')?em+d.data.name:d.data.name;
+    });
+
+  ne.filter(d=>d.data.type==='leaf').append('text').attr('class','leafi')
+    .attr('text-anchor','middle').attr('dominant-baseline','central')
+    .attr('font-size','9px').attr('pointer-events','none').text('🍽️');
+
+  const nu=ne.merge(node);
+  nu.transition().duration(dur).attr('transform',d=>px(d)).style('opacity',1);
+  nu.select('circle.main-circle').transition().duration(dur).attr('r',d=>nodeR(d));
+  nu.select('circle.cdot').transition().duration(dur).attr('opacity',d=>(!d.children&&d._children)?1:0);
+  nu.select('text.lbl').transition().duration(dur).style('opacity',1)
+    .attr('text-anchor',d=>d.depth===0?'middle':d.x<Math.PI?'start':'end')
+    .attr('x',d=>d.depth===0?0:(d.x<Math.PI?(nodeR(d)+6):-(nodeR(d)+6)))
+    .attr('y',d=>d.depth===0?-(nodeR(d)+8):0);
+
+  node.exit().transition().duration(dur)
+    .attr('transform',`translate(${src.y*Math.sin(src.x)},${-src.y*Math.cos(src.x)})`)
+    .style('opacity',0).remove();
+
+  nodes.forEach(d=>{d.x0=d.x;d.y0=d.y;});
 }
 
-/* ======================== SELECTION + ZOOM ======================== */
-var selectedIdx=null;
-var zooming=false,zoomStartPos=new THREE.Vector3(),zoomTargetPos=new THREE.Vector3(),zoomLookAt=new THREE.Vector3(),zoomDuration=0.65,zoomT=0;
-var ZOOM_DIST=14;
+const zoom=d3.zoom().scaleExtent([.25,5])
+  .on('zoom',ev=>{ root2.attr('transform',`translate(${W/2+ev.transform.x},${H/2+ev.transform.y}) scale(${ev.transform.k})`); });
+svg.call(zoom).on('dblclick.zoom',null);
+svg.on('mousedown.grab',()=>svg.classed('grabbing',true)).on('mouseup.grab',()=>svg.classed('grabbing',false));
 
-function updateSelectionLines(clickedId,similarIds){
-  if(!similarIds||similarIds.length===0){selLines.visible=false;return}
-  var c=nodePositions[clickedId];
-  for(var i=0;i<3;i++){
-    var s=nodePositions[similarIds[i]];
-    if(!s){s=c}
-    var j=i*6;
-    selLinePos[j]=c.x;selLinePos[j+1]=c.y;selLinePos[j+2]=c.z;
-    selLinePos[j+3]=s.x;selLinePos[j+4]=s.y;selLinePos[j+5]=s.z;
-  }
-  selLineGeo.attributes.position.needsUpdate=true;
-  selLines.visible=true;
-}
-function setHighlight(idx,similarIds){
-  orbs.forEach(function(o,i){
-    if(i===idx||(similarIds&&similarIds.indexOf(i)>=0))
-      o.scale.setScalar(1.35);
-    else
-      o.scale.setScalar(1);
-  });
-}
-function clearHighlight(){
-  orbs.forEach(function(o){o.scale.setScalar(1)});
-  selLines.visible=false;
-  selectedIdx=null;
-}
-function zoomToNode(idx){
-  var n=nodePositions[idx];
-  var nodePos=new THREE.Vector3(n.x,n.y,n.z);
-  zoomStartPos.copy(camera.position);
-  var dir=camera.position.clone().sub(nodePos);
-  var len=dir.length();
-  if(len<0.001) dir.set(0,2,12); else dir.normalize();
-  zoomTargetPos.copy(nodePos).add(dir.multiplyScalar(ZOOM_DIST));
-  zoomLookAt.copy(nodePos);
-  zooming=true;
-  zoomT=0;
-}
-function selectInViz(idx){
-  selectedIdx=idx;
-  var topSim=DATA.dishInfo[idx].topSimilar||[];
-  var similarIds=topSim.slice(0,3).map(function(s){return s.id});
-  updateSelectionLines(idx,similarIds);
-  setHighlight(idx,similarIds);
-  zoomToNode(idx);
-}
-function updateZoom(dt){
-  if(!zooming) return;
-  zoomT+=dt/zoomDuration;
-  if(zoomT>=1){
-    zooming=false;
-    camera.position.copy(zoomTargetPos);
-    camera.lookAt(zoomLookAt);
-    orbitCenter.copy(zoomLookAt);
-    cameraRadius=ZOOM_DIST;
-    var d=camera.position.clone().sub(orbitCenter).normalize();
-    cPhi=Math.acos(Math.max(-1,Math.min(1,d.y)));
-    cTheta=Math.atan2(d.z,d.x);
-    updateCam();
-    return;
-  }
-  var t=1-Math.pow(1-zoomT,2);
-  camera.position.lerpVectors(zoomStartPos,zoomTargetPos,t);
-  camera.lookAt(zoomLookAt);
-}
-var didDrag=false;
-var panMode=false;
-canvas.onmousedown=function(e){
-  if(!orbitEnabled) return;
-  didDrag=false;
-  /* Right-click or Shift+Left = pan; Left = orbit */
-  panMode=(e.button===2||e.shiftKey);
-  dragStart={x:e.clientX,y:e.clientY,t:cTheta,p:cPhi,cx:orbitCenter.x,cy:orbitCenter.y,cz:orbitCenter.z};
+document.getElementById('btn-reset').onclick=()=>{ svg.transition().duration(600).call(zoom.transform,d3.zoomIdentity); };
+document.getElementById('btn-expand').onclick=()=>{ rootNode.each(d=>{if(d._children){d.children=d._children;d._children=null;}}); update(rootNode); };
+document.getElementById('btn-collapse').onclick=()=>{
+  rootNode.each(d=>{ if(d.depth>0&&d.children){d._children=d.children;d.children=null;} });
+  update(rootNode);
 };
-canvas.oncontextmenu=function(e){e.preventDefault();};
-canvas.onmousemove=function(e){
-  if(dragStart){
-    var dx=e.clientX-dragStart.x,dy=e.clientY-dragStart.y;
-    if(Math.abs(dx)>3||Math.abs(dy)>3) didDrag=true;
-    if(panMode){
-      /* Pan: move orbit center */
-      var panSpeed=cameraRadius*0.002;
-      var right=new THREE.Vector3();
-      var up=new THREE.Vector3(0,1,0);
-      var fwd=camera.position.clone().sub(orbitCenter).normalize();
-      right.crossVectors(up,fwd).normalize();
-      var realUp=new THREE.Vector3();realUp.crossVectors(fwd,right).normalize();
-      orbitCenter.x=dragStart.cx-dx*panSpeed*right.x+dy*panSpeed*realUp.x;
-      orbitCenter.y=dragStart.cy-dx*panSpeed*right.y+dy*panSpeed*realUp.y;
-      orbitCenter.z=dragStart.cz-dx*panSpeed*right.z+dy*panSpeed*realUp.z;
-      updateCam();
-    } else {
-      cTheta=dragStart.t+dx*0.007;
-      cPhi=Math.max(0.15,Math.min(Math.PI-0.15,dragStart.p+dy*0.007));
-      updateCam();
-    }
-    document.getElementById('tooltip').classList.remove('show');
-    return;
-  }
-  // Tooltip via raycaster — check ALL hits for biryani orbs AND ingredient orbs
-  if(introActive) return;
-  var mx=(e.clientX/innerWidth)*2-1;
-  var my=-(e.clientY/innerHeight)*2+1;
-  rc.setFromCamera(new THREE.Vector2(mx,my),camera);
-  /* Check biryani orbs */
-  var hits=rc.intersectObjects(orbs,false);
-  var tt=document.getElementById('tooltip');
-  var found=null;
-  var foundType='biryani';
-  for(var hi=0;hi<hits.length;hi++){
-    var u=hits[hi].object.userData;
-    if(u&&u.name){found=u;break;}
-  }
-  /* Check ingredient orbs if no biryani hit */
-  if(!found){
-    var ihits=rc.intersectObjects(ingredientOrbs,false);
-    for(var hi2=0;hi2<ihits.length;hi2++){
-      var u2=ihits[hi2].object.userData;
-      if(u2&&u2.name){found=u2;foundType='ingredient';break;}
-    }
-  }
-  if(found){
-    if(foundType==='ingredient'){
-      document.getElementById('tt-name').textContent=found.name;
-      document.getElementById('tt-cuisine').textContent='Common Ingredient';
-      document.getElementById('tt-desc').textContent='Found across most biryanis';
-    } else {
-      document.getElementById('tt-name').textContent=found.name;
-      document.getElementById('tt-cuisine').textContent=(found.cuisine||'')+(found.clusterLabel?' \u00b7 '+found.clusterLabel:'');
-      document.getElementById('tt-desc').textContent='Click to see full details';
-    }
-    document.getElementById('tt-img').src=PLACEHOLDER_IMG;
-    tt.style.left=Math.min(e.clientX+14,innerWidth-220)+'px';
-    tt.style.top=Math.min(e.clientY+14,innerHeight-80)+'px';
-    tt.classList.add('show');
-  } else {
-    tt.classList.remove('show');
-  }
-};
-canvas.onmouseup=function(e){
-  var wasDrag=didDrag;
-  var wasLeft=(dragStart && !panMode);
-  dragStart=null;panMode=false;
-  /* If left button, short distance = click on node */
-  if(e.button===0 && !wasDrag && !introActive && orbitEnabled){
-    var mx=(e.clientX/innerWidth)*2-1;
-    var my=-(e.clientY/innerHeight)*2+1;
-    rc.setFromCamera(new THREE.Vector2(mx,my),camera);
-    var hits=rc.intersectObjects(orbs,false);
-    if(hits.length){
-      var obj=hits[0].object;
-      if(obj.userData && obj.userData.id!==undefined){
-        showDish(obj.userData.id);
-      }
-    }
-  }
-};
-canvas.onmouseleave=function(){dragStart=null;panMode=false;document.getElementById('tooltip').classList.remove('show')};
-canvas.onwheel=function(e){if(!orbitEnabled)return;e.preventDefault();cameraRadius=Math.max(1,cameraRadius+e.deltaY*0.08);updateCam()};
 
-/* ======================== RAYCASTER ======================== */
-var rc=new THREE.Raycaster();
-
-/* ======================== ANIMATION LOOP ======================== */
-var clock=new THREE.Clock();
-var elapsed=0;
-function loop(){
-  requestAnimationFrame(loop);
-  var dt=Math.min(clock.getDelta(),0.1);
-  elapsed+=dt;
-  if(introActive) updateIntro(dt);
-  else if(zooming) updateZoom(dt);
-  // Gentle bob for orbs + subtle glow pulse
-  orbs.forEach(function(o,i){o.position.y=nodePositions[i].y+Math.sin(elapsed*0.4+i*0.7)*0.1});
-  // Slow star rotation
-  stars.rotation.y=elapsed*0.002;
-  renderer.render(scene,camera);
+const searchInput=document.getElementById('search');
+const searchClear=document.getElementById('search-clear');
+function doSearch(term){
+  if(!term){clearSearch();return;}
+  const lo=term.toLowerCase();
+  rootNode.each(d=>{if(d._children){d.children=d._children;d._children=null;}});
+  update(rootNode);
+  setTimeout(()=>{
+    gNode.selectAll('g.nd').each(function(d){
+      const info = d.data.type === 'leaf' ? dishById(d.data.dishId) : null;
+      const match = d.data.name.toLowerCase().includes(lo)
+        || (info && info.ingredients && info.ingredients.some(i=>i.toLowerCase().includes(lo)))
+        || (d.data.cuisine && d.data.cuisine.toLowerCase().includes(lo));
+      d3.select(this).classed('highlighted',!!match).classed('dimmed',!match);
+    });
+  },700);
 }
-loop();
-window.onresize=function(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)};
-})();
+function clearSearch(){
+  searchInput.value='';
+  searchClear.classList.remove('visible');
+  gNode.selectAll('g.nd').classed('highlighted',false).classed('dimmed',false);
+}
+searchInput.addEventListener('input',()=>{
+  const v=searchInput.value.trim();
+  searchClear.classList.toggle('visible',v.length>0);
+  doSearch(v);
+});
+searchClear.onclick=clearSearch;
+
+const legEl=document.getElementById('legend');
+(DATA.cuisines || []).forEach(c=>{
+  const col = CUISINE_C[c] || '#777';
+  const d=document.createElement('div');
+  d.className='leg-item';
+  d.innerHTML=`<div class="leg-dot" style="background:${col};box-shadow:0 0 5px ${col}88"></div><span>${c}</span>`;
+  legEl.appendChild(d);
+});
+const s=document.createElement('div');s.className='leg-sep';legEl.appendChild(s);
+legEl.innerHTML+=`<span class="leg-title">Node size = Depth</span>`;
+
+update(rootNode);
+
+window.addEventListener('resize',()=>{
+  const nw=window.innerWidth,nh=window.innerHeight;
+  svg.attr('width',nw).attr('height',nh);
+  svg.select('rect').attr('width',nw).attr('height',nh);
+  root2.attr('transform',`translate(${nw/2},${nh/2})`);
+});
 </script>
 </body>
 </html>"""

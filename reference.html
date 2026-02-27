@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌿 The Culinary Ingredient Tree</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#080f1e;font-family:'Inter',sans-serif;overflow:hidden;width:100vw;height:100vh;color:#e8e0d0}
+  #canvas{display:block}
+  #header{position:fixed;top:18px;left:50%;transform:translateX(-50%);text-align:center;z-index:60;pointer-events:none}
+  #header h1{font-family:'Playfair Display',serif;font-size:24px;color:#e8c97a;letter-spacing:3px;text-shadow:0 0 30px rgba(232,201,122,.45)}
+  #header p{font-size:10px;color:#4a5e80;margin-top:5px;letter-spacing:2.5px;text-transform:uppercase}
+  
+  /* Info Panel */
+  #info-panel{position:fixed;right:18px;top:50%;transform:translateY(-50%) translateX(20px);width:236px;
+    background:rgba(6,14,28,.93);border:1px solid rgba(200,168,76,.22);border-radius:18px;padding:20px;
+    backdrop-filter:blur(14px);z-index:60;opacity:0;pointer-events:none;
+    transition:opacity .35s ease,transform .35s ease}
+  #info-panel.visible{opacity:1;transform:translateY(-50%) translateX(0);pointer-events:auto}
+  .panel-emoji{font-size:34px;margin-bottom:9px;line-height:1}
+  .panel-name{font-family:'Playfair Display',serif;font-size:15px;color:#e8c97a;line-height:1.35;margin-bottom:8px}
+  .cuisine-badge{display:inline-block;padding:3px 11px;border-radius:20px;font-size:9px;font-weight:700;
+    letter-spacing:1.5px;text-transform:uppercase;margin-bottom:13px}
+  .section-title{font-size:8px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#2e4055;margin-bottom:7px}
+  #panel-ingredients{list-style:none}
+  #panel-ingredients li{font-size:11.5px;color:#7a93ae;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:7px}
+  #panel-ingredients li::before{content:"◆";font-size:5px;color:#e8c97a;flex-shrink:0}
+  #panel-path{margin-top:11px;font-size:9.5px;color:#2e4055;font-style:italic;line-height:1.7;border-top:1px solid rgba(255,255,255,.04);padding-top:9px}
+  #close-panel{position:absolute;top:12px;right:12px;background:none;border:none;color:#2e4055;cursor:pointer;font-size:14px;line-height:1;padding:2px}
+  #close-panel:hover{color:#e8c97a}
+  
+  /* Legend */
+  #legend{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    background:rgba(6,14,28,.88);border:1px solid rgba(200,168,76,.13);border-radius:40px;
+    padding:9px 22px;display:flex;align-items:center;gap:5px 14px;flex-wrap:wrap;
+    justify-content:center;z-index:60;backdrop-filter:blur(10px);max-width:92vw}
+  .leg-title{font-size:8px;color:#2e4055;text-transform:uppercase;letter-spacing:1.5px}
+  .leg-item{display:flex;align-items:center;gap:5px;font-size:10.5px;color:#6a7e92}
+  .leg-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+  .leg-sep{width:1px;height:16px;background:rgba(255,255,255,.07);margin:0 3px}
+  
+  /* Controls */
+  #controls{position:fixed;bottom:70px;right:18px;display:flex;flex-direction:column;gap:7px;z-index:60}
+  .ctrl-btn{width:36px;height:36px;border-radius:50%;background:rgba(6,14,28,.92);
+    border:1px solid rgba(200,168,76,.28);color:#a07a30;font-size:18px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:all .2s;line-height:1}
+  .ctrl-btn:hover{background:rgba(200,168,76,.14);border-color:#e8c97a;color:#e8c97a}
+  
+  /* Quick tooltip */
+  #qtip{position:fixed;background:rgba(6,14,28,.96);border:1px solid rgba(200,168,76,.35);
+    border-radius:8px;padding:7px 11px;font-size:11px;color:#c8d8e8;pointer-events:none;
+    z-index:200;display:none;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+  
+  /* SVG */
+  svg{cursor:grab}
+  svg.grabbing{cursor:grabbing}
+  .node{cursor:pointer}
+  .node text{font-family:'Inter',sans-serif;user-select:none;pointer-events:none}
+  
+  /* Search */
+  #search-wrap{position:fixed;top:18px;left:18px;z-index:60}
+  #search{background:rgba(6,14,28,.88);border:1px solid rgba(200,168,76,.22);border-radius:10px;
+    padding:7px 13px;font-size:12px;color:#c8d8e8;width:180px;outline:none;
+    font-family:'Inter',sans-serif}
+  #search::placeholder{color:#2e4055}
+  #search:focus{border-color:rgba(200,168,76,.5)}
+  #search-clear{position:absolute;right:9px;top:50%;transform:translateY(-50%);background:none;border:none;color:#2e4055;cursor:pointer;font-size:14px;display:none}
+  #search-clear.visible{display:block}
+  
+  /* Highlight */
+  .node.highlighted circle.main-circle{stroke:#e8c97a !important;stroke-width:3px !important}
+  .node.dimmed{opacity:.18}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🌿 The Culinary Ingredient Tree</h1>
+  <p>Click nodes to expand &nbsp;·&nbsp; Hover dishes for details &nbsp;·&nbsp; Scroll to zoom &nbsp;·&nbsp; Drag to pan</p>
+</div>
+
+<div id="search-wrap">
+  <input id="search" placeholder="🔍  Search dish or ingredient…" autocomplete="off">
+  <button id="search-clear" title="Clear">✕</button>
+</div>
+
+<svg id="canvas"></svg>
+
+<div id="info-panel">
+  <button id="close-panel">✕</button>
+  <div class="panel-emoji" id="panel-emoji">🍽️</div>
+  <div class="panel-name" id="panel-name"></div>
+  <div class="cuisine-badge" id="panel-cuisine"></div>
+  <div class="section-title">Ingredients</div>
+  <ul id="panel-ingredients"></ul>
+  <div id="panel-path"></div>
+</div>
+
+<div id="legend">
+  <span class="leg-title">Leaf colour = Cuisine</span>
+  <div class="leg-sep"></div>
+</div>
+
+<div id="controls">
+  <button class="ctrl-btn" id="btn-reset" title="Reset view">⊙</button>
+  <button class="ctrl-btn" id="btn-expand" title="Expand all">⊕</button>
+  <button class="ctrl-btn" id="btn-collapse" title="Collapse to trunks">⊖</button>
+</div>
+
+<div id="qtip"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  DATA
+// ══════════════════════════════════════════════════════════════
+const FOOD = {
+  name:"Kitchen",type:"root",emoji:"🌿",
+  children:[
+    { name:"Wheat",type:"trunk",family:"grain",emoji:"🌾",
+      children:[
+        { name:"Flour",type:"branch",
+          children:[
+            { name:"Leavened",type:"branch",
+              children:[
+                {name:"Sourdough Bread",type:"leaf",cuisine:"European",emoji:"🍞",
+                  ingredients:["Wheat flour","Water","Salt","Wild yeast starter"]},
+                {name:"Baguette",type:"leaf",cuisine:"French",emoji:"🥖",
+                  ingredients:["Wheat flour","Water","Salt","Dry yeast"]},
+                {name:"Naan",type:"leaf",cuisine:"Indian",emoji:"🫓",
+                  ingredients:["Wheat flour","Yogurt","Yeast","Ghee","Garlic"]},
+                {name:"Focaccia",type:"leaf",cuisine:"Italian",emoji:"🍞",
+                  ingredients:["Wheat flour","Olive oil","Salt","Rosemary","Yeast"]}
+              ]
+            },
+            { name:"Pasta Dough",type:"branch",
+              children:[
+                {name:"Spaghetti Carbonara",type:"leaf",cuisine:"Italian",emoji:"🍝",
+                  ingredients:["Egg pasta","Guanciale","Pecorino Romano","Egg yolk","Black pepper"]},
+                {name:"Tagliatelle Bolognese",type:"leaf",cuisine:"Italian",emoji:"🍝",
+                  ingredients:["Egg pasta","Beef mince","Tomato","Red wine","Soffritto"]},
+                {name:"Pad Thai",type:"leaf",cuisine:"Thai",emoji:"🍜",
+                  ingredients:["Rice noodles","Shrimp","Egg","Tamarind","Fish sauce","Bean sprouts"]},
+                {name:"Ramen",type:"leaf",cuisine:"Japanese",emoji:"🍜",
+                  ingredients:["Wheat noodles","Tonkotsu broth","Chashu pork","Soft egg","Nori"]}
+              ]
+            },
+            { name:"Pastry Dough",type:"branch",
+              children:[
+                {name:"Croissant",type:"leaf",cuisine:"French",emoji:"🥐",
+                  ingredients:["Wheat flour","Butter","Yeast","Milk","Sugar","Salt"]},
+                {name:"Apple Pie",type:"leaf",cuisine:"American",emoji:"🥧",
+                  ingredients:["Wheat flour","Apple","Butter","Sugar","Cinnamon","Nutmeg"]},
+                {name:"Baklava",type:"leaf",cuisine:"Middle Eastern",emoji:"🍰",
+                  ingredients:["Phyllo dough","Walnuts","Honey","Butter","Cinnamon"]}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    { name:"Tomato",type:"trunk",family:"nightshade",emoji:"🍅",
+      children:[
+        { name:"Raw",type:"branch",
+          children:[
+            {name:"Caprese Salad",type:"leaf",cuisine:"Italian",emoji:"🥗",
+              ingredients:["Fresh tomato","Mozzarella di bufala","Basil","Extra virgin olive oil","Sea salt"]},
+            {name:"Gazpacho",type:"leaf",cuisine:"Spanish",emoji:"🥣",
+              ingredients:["Ripe tomato","Cucumber","Red pepper","Garlic","Olive oil","Sherry vinegar"]},
+            {name:"Bruschetta",type:"leaf",cuisine:"Italian",emoji:"🍞",
+              ingredients:["Fresh tomato","Basil","Garlic","Olive oil","Sourdough bread"]}
+          ]
+        },
+        { name:"Cooked / Sauce",type:"branch",
+          children:[
+            { name:"Tomato Sauce",type:"branch",
+              children:[
+                {name:"Margherita Pizza",type:"leaf",cuisine:"Italian",emoji:"🍕",
+                  ingredients:["Tomato sauce","Fior di latte","Basil","Olive oil","Pizza dough"]},
+                {name:"Shakshuka",type:"leaf",cuisine:"Middle Eastern",emoji:"🍳",
+                  ingredients:["Tomato","Egg","Cumin","Chili","Onion","Garlic","Feta"]},
+                {name:"Arrabbiata Pasta",type:"leaf",cuisine:"Italian",emoji:"🍝",
+                  ingredients:["Tomato","Pasta","Chili","Garlic","Olive oil","Parsley"]}
+              ]
+            },
+            { name:"Slow Cooked",type:"branch",
+              children:[
+                {name:"Chicken Tikka Masala",type:"leaf",cuisine:"Indian",emoji:"🍛",
+                  ingredients:["Tomato","Chicken","Heavy cream","Garam masala","Onion","Ginger"]},
+                {name:"Ratatouille",type:"leaf",cuisine:"French",emoji:"🫕",
+                  ingredients:["Tomato","Zucchini","Eggplant","Bell pepper","Herbes de Provence"]},
+                {name:"Minestrone",type:"leaf",cuisine:"Italian",emoji:"🥣",
+                  ingredients:["Tomato","Borlotti beans","Pasta","Seasonal vegetables","Parmesan rind"]}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    { name:"Egg",type:"trunk",family:"protein",emoji:"🥚",
+      children:[
+        { name:"Whole Egg",type:"branch",
+          children:[
+            { name:"Fried / Poached",type:"branch",
+              children:[
+                {name:"Eggs Benedict",type:"leaf",cuisine:"American",emoji:"🍳",
+                  ingredients:["Egg","Hollandaise sauce","Canadian bacon","English muffin","White vinegar"]},
+                {name:"Shakshuka",type:"leaf",cuisine:"Middle Eastern",emoji:"🍳",
+                  ingredients:["Egg","Tomato sauce","Cumin","Chili","Onion","Garlic"]},
+                {name:"Okonomiyaki",type:"leaf",cuisine:"Japanese",emoji:"🥞",
+                  ingredients:["Egg","Cabbage","Flour","Dashi","Tenkasu","Bonito flakes"]}
+              ]
+            },
+            { name:"Beaten / Whipped",type:"branch",
+              children:[
+                {name:"French Omelette",type:"leaf",cuisine:"French",emoji:"🍳",
+                  ingredients:["Egg","Butter","Fresh herbs","Salt","White pepper"]},
+                {name:"Frittata",type:"leaf",cuisine:"Italian",emoji:"🍳",
+                  ingredients:["Egg","Parmigiano","Seasonal vegetables","Olive oil"]},
+                {name:"Tortilla Española",type:"leaf",cuisine:"Spanish",emoji:"🍳",
+                  ingredients:["Egg","Potato","Onion","Olive oil","Salt"]}
+              ]
+            }
+          ]
+        },
+        { name:"Separated",type:"branch",
+          children:[
+            { name:"Yolk-Based",type:"branch",
+              children:[
+                {name:"Crème Brûlée",type:"leaf",cuisine:"French",emoji:"🍮",
+                  ingredients:["Egg yolk","Heavy cream","Vanilla bean","Sugar"]},
+                {name:"Pasta Carbonara",type:"leaf",cuisine:"Italian",emoji:"🍝",
+                  ingredients:["Egg yolk","Spaghetti","Guanciale","Pecorino","Black pepper"]},
+                {name:"Hollandaise",type:"leaf",cuisine:"French",emoji:"🫙",
+                  ingredients:["Egg yolk","Clarified butter","Lemon juice","Cayenne pepper"]}
+              ]
+            },
+            { name:"White-Based",type:"branch",
+              children:[
+                {name:"Meringue",type:"leaf",cuisine:"European",emoji:"🍥",
+                  ingredients:["Egg white","Caster sugar","Cream of tartar","Vanilla"]},
+                {name:"Angel Food Cake",type:"leaf",cuisine:"American",emoji:"🎂",
+                  ingredients:["Egg white","Cake flour","Sugar","Vanilla extract","Cream of tartar"]},
+                {name:"Pavlova",type:"leaf",cuisine:"Australian",emoji:"🍰",
+                  ingredients:["Egg white","Sugar","Cornflour","White wine vinegar","Cream","Berries"]}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    { name:"Chicken",type:"trunk",family:"poultry",emoji:"🍗",
+      children:[
+        { name:"Whole / Jointed",type:"branch",
+          children:[
+            { name:"Roasted",type:"branch",
+              children:[
+                {name:"Roast Chicken",type:"leaf",cuisine:"European",emoji:"🍗",
+                  ingredients:["Whole chicken","Butter","Thyme","Garlic","Lemon","Rosemary"]},
+                {name:"Peri-Peri Chicken",type:"leaf",cuisine:"Portuguese",emoji:"🍗",
+                  ingredients:["Chicken","Bird's eye chili","Garlic","Lemon","Olive oil"]},
+                {name:"Poulet Rôti",type:"leaf",cuisine:"French",emoji:"🍗",
+                  ingredients:["Chicken","Tarragon","Dijon mustard","Crème fraîche","Shallots"]}
+              ]
+            },
+            { name:"Braised",type:"branch",
+              children:[
+                {name:"Coq au Vin",type:"leaf",cuisine:"French",emoji:"🫕",
+                  ingredients:["Chicken","Burgundy wine","Mushrooms","Lardons","Pearl onions","Bay leaf"]},
+                {name:"Chicken Tikka Masala",type:"leaf",cuisine:"Indian",emoji:"🍛",
+                  ingredients:["Chicken","Tomato","Heavy cream","Garam masala","Ginger","Garlic"]},
+                {name:"Chicken Adobo",type:"leaf",cuisine:"Filipino",emoji:"🍲",
+                  ingredients:["Chicken","Soy sauce","Cane vinegar","Garlic","Bay leaf","Black pepper"]}
+              ]
+            }
+          ]
+        },
+        { name:"Minced / Ground",type:"branch",
+          children:[
+            { name:"Formed",type:"branch",
+              children:[
+                {name:"Larb Gai",type:"leaf",cuisine:"Thai",emoji:"🥗",
+                  ingredients:["Minced chicken","Lime juice","Fish sauce","Mint","Toasted rice powder","Chili"]},
+                {name:"Chicken Kofta",type:"leaf",cuisine:"Middle Eastern",emoji:"🍢",
+                  ingredients:["Minced chicken","Onion","Cumin","Coriander","Chili","Fresh parsley"]},
+                {name:"Chicken Burger",type:"leaf",cuisine:"American",emoji:"🍔",
+                  ingredients:["Minced chicken","Breadcrumbs","Egg","Onion","Garlic","Herbs"]}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    { name:"Potato",type:"trunk",family:"starch",emoji:"🥔",
+      children:[
+        { name:"Whole",type:"branch",
+          children:[
+            { name:"Boiled",type:"branch",
+              children:[
+                {name:"Potato Salad",type:"leaf",cuisine:"European",emoji:"🥗",
+                  ingredients:["Waxy potato","Mayonnaise","Dijon mustard","Dill","Capers","Red onion"]},
+                {name:"Colcannon",type:"leaf",cuisine:"Irish",emoji:"🥣",
+                  ingredients:["Floury potato","Curly kale","Butter","Cream","Spring onions"]},
+                {name:"Vichyssoise",type:"leaf",cuisine:"French",emoji:"🥣",
+                  ingredients:["Potato","Leek","Chicken stock","Heavy cream","Chives","White pepper"]}
+              ]
+            },
+            { name:"Roasted / Fried",type:"branch",
+              children:[
+                {name:"Patatas Bravas",type:"leaf",cuisine:"Spanish",emoji:"🍟",
+                  ingredients:["Potato","Olive oil","Smoked paprika","Aioli","Tomato sauce"]},
+                {name:"Hasselback Potatoes",type:"leaf",cuisine:"Swedish",emoji:"🥔",
+                  ingredients:["Potato","Butter","Breadcrumbs","Thyme","Parmesan"]},
+                {name:"French Fries",type:"leaf",cuisine:"Belgian",emoji:"🍟",
+                  ingredients:["Maris Piper potato","Beef tallow","Sea salt","Mayonnaise"]}
+              ]
+            }
+          ]
+        },
+        { name:"Mashed / Processed",type:"branch",
+          children:[
+            { name:"Puréed",type:"branch",
+              children:[
+                {name:"Duchess Potatoes",type:"leaf",cuisine:"French",emoji:"🥔",
+                  ingredients:["Potato purée","Butter","Egg yolk","Nutmeg","Gruyère"]},
+                {name:"Aligot",type:"leaf",cuisine:"French",emoji:"🧀",
+                  ingredients:["Potato purée","Tomme fraîche","Butter","Garlic","Crème fraîche"]},
+                {name:"Gnocchi",type:"leaf",cuisine:"Italian",emoji:"🥟",
+                  ingredients:["Floury potato","00 flour","Egg yolk","Salt","Nutmeg"]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
+// ══════════════════════════════════════════════════════════════
+//  COLOR MAP
+// ══════════════════════════════════════════════════════════════
+const FAMILY_C = {grain:'#C9A84C',nightshade:'#C94C4C',protein:'#4C8FC9',poultry:'#E6843A',starch:'#8E44AD'};
+const CUISINE_C = {
+  'Italian':'#e74c3c','French':'#4a90d9','Indian':'#f39c12','Japanese':'#9b59b6',
+  'American':'#27ae60','Spanish':'#e67e22','Middle Eastern':'#1abc9c','Thai':'#2ecc71',
+  'Filipino':'#d35400','European':'#8e9eab','Australian':'#16a085','Portuguese':'#8e44ad',
+  'Irish':'#27ae60','Swedish':'#3498db','Belgian':'#f1c40f'
+};
+
+function nodeColor(d){
+  if(d.data.type==='root') return '#e8c97a';
+  if(d.data.type==='trunk') return FAMILY_C[d.data.family]||'#888';
+  if(d.data.type==='leaf') return CUISINE_C[d.data.cuisine]||'#aaa';
+  const t=d.ancestors().find(a=>a.data.type==='trunk');
+  const base=t?FAMILY_C[t.data.family]:'#556';
+  return d3.interpolateRgb(base,'#2a3a4e')((d.depth-1)/4);
+}
+function nodeR(d){ return {root:22,trunk:16,leaf:10}[d.data.type]||8; }
+function fontSize(d){ return {root:14,trunk:13,leaf:10}[d.data.type]||11; }
+function linkW(d){ return {root:3,trunk:2.5}[d.source.data.type]||(d.target.data.type==='leaf'?1:1.7); }
+function linkAlpha(d){ return {root:.7,trunk:.55}[d.source.data.type]||.3; }
+function linkCol(d){
+  const t=d.target.ancestors().find(a=>a.data.type==='trunk');
+  return t?FAMILY_C[t.data.family]:'#3a4e66';
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SVG SETUP
+// ══════════════════════════════════════════════════════════════
+const W=window.innerWidth, H=window.innerHeight;
+const R=Math.min(W,H)*0.41;
+
+const svg=d3.select('#canvas').attr('width',W).attr('height',H);
+const defs=svg.append('defs');
+
+// bg gradient
+const bg=defs.append('radialGradient').attr('id','bg').attr('cx','50%').attr('cy','50%').attr('r','70%');
+bg.append('stop').attr('offset','0%').attr('stop-color','#0e1d35');
+bg.append('stop').attr('offset','100%').attr('stop-color','#050a15');
+svg.append('rect').attr('width',W).attr('height',H).attr('fill','url(#bg)');
+
+// glow filters
+['glow','sGlow'].forEach((id,i)=>{
+  const f=defs.append('filter').attr('id',id);
+  f.append('feGaussianBlur').attr('stdDeviation',i===0?5:2.5).attr('result','cb');
+  const m=f.append('feMerge');
+  m.append('feMergeNode').attr('in','cb');
+  m.append('feMergeNode').attr('in','SourceGraphic');
+});
+
+// leaf clip gradient (subtle inner ring shimmer)
+const leafGlow=defs.append('filter').attr('id','leafGlow');
+leafGlow.append('feGaussianBlur').attr('stdDeviation','3').attr('result','cb');
+const lfm=leafGlow.append('feMerge');
+lfm.append('feMergeNode').attr('in','cb');
+lfm.append('feMergeNode').attr('in','SourceGraphic');
+
+const root2=svg.append('g').attr('id','root2').attr('transform',`translate(${W/2},${H/2})`);
+
+// depth rings
+const rings=root2.append('g');
+[1,2,3,4].forEach(d=>{
+  rings.append('circle').attr('r',d*(R/4))
+    .attr('fill','none')
+    .attr('stroke',`rgba(255,255,255,${d===4?.05:.025})`)
+    .attr('stroke-dasharray',d===4?'5,10':'3,9');
+});
+
+const gLink=root2.append('g').attr('class','links');
+const gNode=root2.append('g').attr('class','nodes');
+
+// ══════════════════════════════════════════════════════════════
+//  TREE LAYOUT
+// ══════════════════════════════════════════════════════════════
+const treeLayout=d3.tree()
+  .size([2*Math.PI,R])
+  .separation((a,b)=>(a.parent===b.parent?1:2)/a.depth);
+
+let rootNode=d3.hierarchy(FOOD);
+let uid=0; rootNode.each(d=>d.id=uid++);
+
+// collapse: initially show depth 0,1,2 — deeper collapsed
+rootNode.each(d=>{
+  d._children=d.children?[...d.children]:null;
+  if(d.depth>=3) d.children=null;
+  d.x0=0; d.y0=0;
+});
+
+const diagonal=d3.linkRadial().angle(d=>d.x).radius(d=>d.y);
+
+// polar → cartesian
+const px=(d)=>`translate(${d.y*Math.sin(d.x)},${-d.y*Math.cos(d.x)})`;
+const pxSrc=(src)=>`translate(${(src.y0||0)*Math.sin(src.x0||0)},${-(src.y0||0)*Math.cos(src.x0||0)})`;
+
+// ══════════════════════════════════════════════════════════════
+//  INFO PANEL
+// ══════════════════════════════════════════════════════════════
+const panel=document.getElementById('info-panel');
+const pEmoji=document.getElementById('panel-emoji');
+const pName=document.getElementById('panel-name');
+const pCuisine=document.getElementById('panel-cuisine');
+const pIngr=document.getElementById('panel-ingredients');
+const pPath=document.getElementById('panel-path');
+const qtip=document.getElementById('qtip');
+
+function showLeaf(event,d){
+  if(d.data.type!=='leaf') return;
+  pEmoji.textContent=d.data.emoji||'🍽️';
+  pName.textContent=d.data.name;
+  const c=CUISINE_C[d.data.cuisine]||'#888';
+  pCuisine.textContent=d.data.cuisine;
+  pCuisine.style.cssText=`background:${c}20;color:${c};border:1px solid ${c}45`;
+  pIngr.innerHTML=(d.data.ingredients||[]).map(i=>`<li>${i}</li>`).join('');
+  pPath.textContent=d.ancestors().reverse().map(a=>a.data.name).join(' → ');
+  panel.classList.add('visible');
+}
+function hideLeaf(event,d){
+  if(d.data.type==='leaf') return; // keep panel open if moving within leaf area
+  panel.classList.remove('visible');
+}
+
+document.getElementById('close-panel').onclick=()=>panel.classList.remove('visible');
+
+function showQtip(event,d){
+  if(d.data.type==='leaf'){showLeaf(event,d);return;}
+  const state=d.children?'click to collapse':'click to expand';
+  qtip.textContent=`${d.data.emoji?d.data.emoji+' ':''}${d.data.name}  (${state})`;
+  qtip.style.display='block';
+  qtip.style.left=(event.clientX+14)+'px';
+  qtip.style.top=(event.clientY-8)+'px';
+}
+function hideQtip(){qtip.style.display='none';}
+
+// ══════════════════════════════════════════════════════════════
+//  UPDATE
+// ══════════════════════════════════════════════════════════════
+function update(src){
+  const dur=650;
+  treeLayout(rootNode);
+  const nodes=rootNode.descendants();
+  const links=rootNode.links();
+  nodes.forEach(d=>{ d.y=d.depth*(R/4); });
+
+  /* ── LINKS ── */
+  const link=gLink.selectAll('path.lk').data(links,d=>d.target.id);
+
+  link.enter().append('path').attr('class','lk')
+    .attr('fill','none')
+    .attr('d',()=>{const o={x:src.x0||0,y:src.y0||0};return diagonal({source:o,target:o});})
+    .attr('stroke',d=>linkCol(d))
+    .attr('stroke-width',d=>linkW(d))
+    .attr('stroke-opacity',0)
+  .merge(link)
+    .transition().duration(dur)
+    .attr('d',diagonal)
+    .attr('stroke',d=>linkCol(d))
+    .attr('stroke-width',d=>linkW(d))
+    .attr('stroke-opacity',d=>linkAlpha(d));
+
+  link.exit().transition().duration(dur)
+    .attr('d',()=>{const o={x:src.x,y:src.y};return diagonal({source:o,target:o});})
+    .attr('stroke-opacity',0).remove();
+
+  /* ── NODES ── */
+  const node=gNode.selectAll('g.nd').data(nodes,d=>d.id);
+
+  const ne=node.enter().append('g').attr('class',d=>`nd nd-${d.data.type}`)
+    .attr('transform',()=>pxSrc(src))
+    .style('opacity',0)
+    .on('click',(ev,d)=>{
+      if(d.children){d._children=d.children;d.children=null;}
+      else if(d._children){d.children=d._children;d._children=null;}
+      d.x0=d.x; d.y0=d.y;
+      update(d);
+      clearSearch();
+    })
+    .on('mouseover',(ev,d)=>{showQtip(ev,d);})
+    .on('mouseout',(_,d)=>{hideQtip();if(d.data.type!=='leaf'){}});
+
+  // outer ring for leaf
+  ne.filter(d=>d.data.type==='leaf').append('circle')
+    .attr('class','leaf-ring')
+    .attr('r',d=>nodeR(d)+5).attr('fill','none')
+    .attr('stroke',d=>nodeColor(d)).attr('stroke-width',1).attr('stroke-opacity',.35);
+
+  // main circle
+  ne.append('circle').attr('class','main-circle').attr('r',0)
+    .attr('fill',d=>nodeColor(d))
+    .attr('stroke','#060e1b').attr('stroke-width',2)
+    .attr('filter',d=>d.data.type==='root'?'url(#glow)':d.data.type==='trunk'?'url(#sGlow)':null);
+
+  // collapsed indicator dot
+  ne.append('circle').attr('class','cdot').attr('r',2.5)
+    .attr('fill','#e8c97a').attr('opacity',0);
+
+  // text label
+  ne.append('text').attr('class','lbl')
+    .attr('dy','0.31em').style('opacity',0)
+    .attr('font-size',d=>fontSize(d)+'px')
+    .attr('fill',d=>d.data.type==='root'?'#e8c97a':d.data.type==='trunk'?nodeColor(d):d.data.type==='leaf'?'#b8cce0':'#6a8090')
+    .attr('font-weight',d=>d.data.type==='trunk'?600:400)
+    .text(d=>{
+      const em=d.data.emoji?d.data.emoji+' ':'';
+      return (d.data.type==='trunk'||d.data.type==='root')?em+d.data.name:d.data.name;
+    });
+
+  // leaf emoji inside circle
+  ne.filter(d=>d.data.type==='leaf').append('text').attr('class','leafi')
+    .attr('text-anchor','middle').attr('dominant-baseline','central')
+    .attr('font-size','9px').attr('pointer-events','none')
+    .text(d=>d.data.emoji||'');
+
+  const nu=ne.merge(node);
+
+  nu.transition().duration(dur).attr('transform',d=>px(d)).style('opacity',1);
+
+  nu.select('circle.main-circle').transition().duration(dur).attr('r',d=>nodeR(d));
+
+  nu.select('circle.cdot').transition().duration(dur)
+    .attr('opacity',d=>(!d.children&&d._children)?1:0);
+
+  nu.select('text.lbl').transition().duration(dur).style('opacity',1)
+    .attr('text-anchor',d=>d.depth===0?'middle':d.x<Math.PI?'start':'end')
+    .attr('x',d=>{
+      if(d.depth===0) return 0;
+      const r=nodeR(d)+6;
+      return d.x<Math.PI?r:-r;
+    })
+    .attr('y',d=>d.depth===0?-(nodeR(d)+8):0);
+
+  node.exit().transition().duration(dur)
+    .attr('transform',`translate(${src.y*Math.sin(src.x)},${-src.y*Math.cos(src.x)})`)
+    .style('opacity',0).remove();
+
+  nodes.forEach(d=>{d.x0=d.x;d.y0=d.y;});
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ZOOM & PAN
+// ══════════════════════════════════════════════════════════════
+const zoom=d3.zoom().scaleExtent([.25,5])
+  .on('zoom',ev=>{
+    root2.attr('transform',`translate(${W/2+ev.transform.x},${H/2+ev.transform.y}) scale(${ev.transform.k})`);
+  });
+svg.call(zoom).on('dblclick.zoom',null);
+svg.on('mousedown.grab',()=>svg.classed('grabbing',true))
+   .on('mouseup.grab',()=>svg.classed('grabbing',false));
+
+// ══════════════════════════════════════════════════════════════
+//  CONTROLS
+// ══════════════════════════════════════════════════════════════
+document.getElementById('btn-reset').onclick=()=>{
+  svg.transition().duration(600).call(zoom.transform,d3.zoomIdentity);
+};
+document.getElementById('btn-expand').onclick=()=>{
+  rootNode.each(d=>{if(d._children){d.children=d._children;d._children=null;}});
+  update(rootNode);
+};
+document.getElementById('btn-collapse').onclick=()=>{
+  rootNode.each(d=>{
+    if(d.depth>0&&d.children){d._children=d.children;d.children=null;}
+  });
+  update(rootNode);
+};
+
+// ══════════════════════════════════════════════════════════════
+//  SEARCH / HIGHLIGHT
+// ══════════════════════════════════════════════════════════════
+const searchInput=document.getElementById('search');
+const searchClear=document.getElementById('search-clear');
+
+function doSearch(term){
+  if(!term){clearSearch();return;}
+  const lo=term.toLowerCase();
+  // First expand all so all nodes are visible
+  rootNode.each(d=>{if(d._children){d.children=d._children;d._children=null;}});
+  update(rootNode);
+  // After update, highlight matching nodes
+  setTimeout(()=>{
+    gNode.selectAll('g.nd').each(function(d){
+      const el=d3.select(this);
+      const match=d.data.name.toLowerCase().includes(lo)||
+        (d.data.ingredients&&d.data.ingredients.some(i=>i.toLowerCase().includes(lo)))||
+        (d.data.cuisine&&d.data.cuisine.toLowerCase().includes(lo));
+      el.classed('highlighted',match).classed('dimmed',!match);
+    });
+  },700);
+}
+function clearSearch(){
+  searchInput.value='';
+  searchClear.classList.remove('visible');
+  gNode.selectAll('g.nd').classed('highlighted',false).classed('dimmed',false);
+}
+searchInput.addEventListener('input',()=>{
+  const v=searchInput.value.trim();
+  searchClear.classList.toggle('visible',v.length>0);
+  doSearch(v);
+});
+searchClear.onclick=clearSearch;
+
+// ══════════════════════════════════════════════════════════════
+//  LEGEND
+// ══════════════════════════════════════════════════════════════
+const legEl=document.getElementById('legend');
+const cuisines=['Italian','French','Indian','Japanese','American','Spanish','Middle Eastern','Thai','Filipino','European'];
+cuisines.forEach(c=>{
+  const d=document.createElement('div');
+  d.className='leg-item';
+  d.innerHTML=`<div class="leg-dot" style="background:${CUISINE_C[c]};box-shadow:0 0 5px ${CUISINE_C[c]}88"></div><span>${c}</span>`;
+  legEl.appendChild(d);
+});
+const s=document.createElement('div');s.className='leg-sep';legEl.appendChild(s);
+legEl.innerHTML+=`<span class="leg-title">Node size = Depth</span>`;
+
+// ══════════════════════════════════════════════════════════════
+//  INITIAL RENDER
+// ══════════════════════════════════════════════════════════════
+update(rootNode);
+
+// ══════════════════════════════════════════════════════════════
+//  RESIZE
+// ══════════════════════════════════════════════════════════════
+window.addEventListener('resize',()=>{
+  const nw=window.innerWidth,nh=window.innerHeight;
+  svg.attr('width',nw).attr('height',nh);
+  svg.select('rect').attr('width',nw).attr('height',nh);
+  root2.attr('transform',`translate(${nw/2},${nh/2})`);
+});
+</script>
+</body>
+</html>
